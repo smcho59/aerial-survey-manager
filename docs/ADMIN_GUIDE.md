@@ -1597,27 +1597,50 @@ location @empty_tile {
 
 배포 후 타일 데이터를 교체하는 올바른 절차입니다.
 
-#### A. 기존 폴더 안의 파일만 교체 (권장)
+#### A. 폴더 안의 파일만 교체 (권장 - 서비스 중단 없음)
 
 ```bash
-# 기존 타일 삭제 후 새 타일 복사 (폴더 자체는 유지)
-rm -rf /path/to/tiles/*
-cp -r /new/tiles/source/* /path/to/tiles/
+# 예시: TILES_PATH=/media/innopam/InnoPAM-8TB/data/vworld_tiles
 
-# nginx 재시작 불필요 (bind mount가 유지됨)
+# 1. 기존 타일 내용 삭제 (폴더 자체는 유지!)
+rm -rf /media/innopam/InnoPAM-8TB/data/vworld_tiles/*
+
+# 2. 새 타일 복사 (폴더 안으로)
+cp -r /new/tiles/* /media/innopam/InnoPAM-8TB/data/vworld_tiles/
+
+# nginx 재시작 불필요 - Docker bind mount가 유지되어 즉시 반영됨
 ```
 
-#### B. 폴더 자체를 삭제 후 재생성한 경우
+#### B. 폴더 자체를 교체한 경우 (nginx 재시작 필요)
+
+폴더를 삭제 후 새로 생성했거나, `mv`/`cp`로 폴더 자체를 교체한 경우:
 
 ```bash
-# 이미 폴더를 삭제 후 새로 만들었다면 nginx 재시작 필요
+# nginx 재시작으로 새 inode에 대해 bind mount 재연결
 docker compose restart nginx
 ```
 
-> ⚠️ **Docker bind mount 주의사항**: Docker bind mount는 디렉토리의 **inode**를 참조합니다.
-> 호스트에서 디렉토리를 삭제(`rm -rf /tiles`)하고 같은 경로에 새로 생성(`mkdir /tiles`)하면,
-> inode가 변경되어 컨테이너 내부에서 "No such file or directory" 오류가 발생합니다.
-> 이 경우 반드시 `docker compose restart nginx`로 nginx를 재시작해야 합니다.
+> ⚠️ **왜 폴더 안의 파일만 교체해야 하는가?**
+>
+> Docker bind mount는 디렉토리의 **inode**(파일시스템 고유 번호)를 참조합니다.
+> 폴더를 삭제(`rm -rf vworld_tiles`)하고 같은 경로에 새로 생성하면,
+> 경로는 같지만 **inode가 달라져서** 컨테이너 내부에서 빈 디렉토리로 보입니다.
+>
+> - `rm -rf vworld_tiles/*` → 폴더 inode 유지 → bind mount 정상
+> - `rm -rf vworld_tiles && cp -r new vworld_tiles` → inode 변경 → bind mount 끊어짐
+
+#### C. 교체 후 확인
+
+```bash
+# 1. 컨테이너 내부에서 타일 파일 존재 확인
+docker compose exec nginx ls /data/tiles/7/109/
+
+# 2. 타일 응답 확인
+curl -s -o /dev/null -w "%{http_code}" http://localhost:8081/tiles/7/109/49
+
+# 3. 브라우저 캐시 갱신 (expires 1d 설정으로 인해 캐시될 수 있음)
+#    브라우저에서 Ctrl+Shift+R (하드 리프레시)
+```
 
 ### 9. 트러블슈팅
 
