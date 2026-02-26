@@ -81,3 +81,53 @@ This file maps implemented code to the 1st-4th sprint goals and is the core refe
 - Frontend project actions now resolve by project-level effective permission (not only global role):
   - `src/App.jsx`
   - `src/components/Dashboard/Sidebar.jsx`
+
+## 업로드 성능 튜닝 기록 (2026-02-26)
+
+- 적용 내역
+  - Frontend 업로드 기본값 변경: `src/App.jsx`
+    - `partSize`: `10MB -> 32MB`
+    - `concurrency`: `6 -> 3`
+    - `partConcurrency`: `4 -> 2`
+  - Nginx 업로드 경로 버퍼링 튜닝
+    - `nginx.conf`
+    - `nginx.prod.conf`
+    - `/api/v1/upload/` 블록에 다음 적용
+      - `proxy_request_buffering off`
+      - `proxy_buffering off`
+      - `client_max_body_size 0`
+      - `proxy_read_timeout 3600s`
+      - `proxy_send_timeout 3600s`
+      - `proxy_connect_timeout 60s`
+
+- 네트워크 여건별 기대 동작 (예상)
+  - `~100 Mbps`(약 `12MB/s` 미만): 현재 튜닝이 병목 완화에 큰 도움을 줄 수 있음
+  - `100~300 Mbps`(약 `12~37MB/s`): 병목 완화 + HDD 쓰기/서버 처리 한계 병행 개선
+  - `300Mbps+`(약 `37MB/s+`): 디스크 I/O 또는 API 처리 병목이 상대적으로 더 크게 보일 수 있음
+  - `iperf3`에서 합산(`SUM`) 업로드가 `138 Mbit/s`이면 실제 체감 `약 17MB/s` 수준과 일치
+
+- 추후 적용 판단 가이드
+  - 네트워크가 좋은 환경이면 `concurrency 3 / partConcurrency 2`를 `concurrency 2 / partConcurrency 1`로 낮추는 것도 재시도 포인트
+  - HDD 이외 SSD 환경이면 `partSize 64MB`로 늘려도 오히려 유리할 수 있음
+  - 현재 값은 먼저 “안전한 기본값(네트워크 병목 완화형)”으로 적용 후, 환경별 성능 측정 기반으로 튜닝
+
+- 적용 범위(운영 판단) 요약
+  - 현재 변경은 개발 스택 기준으로 적용되었고, 현 시점 목표는 먼저 안정성 확인이다.
+  - 프로덕션 스택은 이슈 해결 이전에 즉시 반영하지 않았다.
+  - 운영 반영은 `docker-compose.prod.yml` 기반 배포로 전환할 때, 또는 다음 배포 빌드 단계에서 한 번에 적용한다.
+
+- Nginx 반영/리로드 명령 정리
+  - 개발/기본 스택(`docker-compose.yml` 사용 시)
+    - `docker compose exec nginx nginx -t`
+    - `docker compose exec nginx nginx -s reload`
+    - 변경이 안 되면 `docker compose restart nginx`
+  - 프로덕션 스택(`docker-compose.prod.yml` 사용 시)
+    - `docker compose -f docker-compose.prod.yml exec nginx nginx -t`
+    - `docker compose -f docker-compose.prod.yml exec nginx nginx -s reload`
+    - 변경이 안 되면 `docker compose -f docker-compose.prod.yml restart nginx`
+    - 컨테이너 교체 반영: `docker compose -f docker-compose.prod.yml up -d nginx`
+
+  - 권장 순서
+    - config 확인: `nginx -t`
+    - 정상일 때 reload
+    - 재시작은 서비스가 잠깐 중단되어도 되는 유지보수 시간대에 실행

@@ -61,7 +61,8 @@ export function useProcessingProgress(projectId) {
         // Construct WebSocket URL using current origin (nginx proxy handles routing)
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const host = window.location.host; // Includes port (e.g., localhost:8081)
-        const wsUrl = `${protocol}//${host}/api/v1/processing/ws/projects/${projectId}/status`;
+        const token = localStorage.getItem('access_token');
+        const wsUrl = `${protocol}//${host}/api/v1/processing/ws/projects/${projectId}/status${token ? `?token=${token}` : ''}`;
 
         setStatus('connecting');
 
@@ -106,9 +107,10 @@ export function useProcessingProgress(projectId) {
                             setStatus('error');
                         } else if (data.status === 'queued') {
                             setStatus('queued');
-                        } else {
+                        } else if (data.status === 'processing' || data.status === 'running') {
                             setStatus('processing');
                         }
+                        // 'scheduled', 'pending' 등은 무시 (idle 유지)
                     }
 
                     if (data.message) {

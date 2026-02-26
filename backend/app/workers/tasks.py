@@ -91,7 +91,7 @@ def _broadcast_ws(project_id: str, status: str, progress: int, message: str):
         )
         httpx.post(
             "http://api:8000/api/v1/processing/broadcast",
-            params={"internal_token": token},
+            params={"token": token},
             json={
                 "project_id": project_id,
                 "status": status,
@@ -186,6 +186,9 @@ def _prepare_images(storage, images, input_dir: Path, update_progress) -> int:
             local_src = storage.get_local_path(image.original_path)
 
             if local_src and os.path.exists(local_src):
+                # Remove stale symlink/file from previous interrupted run
+                if target_path.exists() or target_path.is_symlink():
+                    target_path.unlink()
                 try:
                     os.symlink(local_src, str(target_path))
                 except OSError:
@@ -240,10 +243,11 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
             db.commit()
 
             queue_wait_seconds = None
-            if job.created_at:
+            queued_at = getattr(job, 'queued_at', None) or getattr(job, 'created_at', None)
+            if queued_at:
                 queue_wait_seconds = max(
                     0.0,
-                    (job.started_at - job.created_at).total_seconds(),
+                    (job.started_at - queued_at).total_seconds(),
                 )
                 print(
                     f"[Metrics] queue_wait_seconds={queue_wait_seconds:.2f} "
@@ -568,18 +572,15 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
             project.status = "error"
             project.error_message = user_friendly_error  # Also save to project for UI display
             db.commit()
-            write_status_file(
-                0,
-                user_friendly_error,
-                status_value="error",
-                metrics={
-                    "phase_elapsed_seconds": {
-                        phase_name: round(elapsed, 2)
-                        for phase_name, elapsed in phase_timings
-                    },
-                    "error_message": user_friendly_error,
-                },
-            )
+            try:
+                error_metrics = {"error_message": user_friendly_error}
+                if 'phase_timings' in dir():
+                    error_metrics["phase_elapsed_seconds"] = {
+                        pn: round(el, 2) for pn, el in phase_timings
+                    }
+                write_status_file(0, user_friendly_error, status_value="error", metrics=error_metrics)
+            except NameError:
+                pass  # write_status_file/phase_timings not yet defined (early failure)
             
             # Broadcast error via WebSocket
             _broadcast_ws(project_id, "error", 0, user_friendly_error)

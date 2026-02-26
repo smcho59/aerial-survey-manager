@@ -260,6 +260,7 @@ function Dashboard() {
   }, []);
 
   const [selectedProjectId, setSelectedProjectId] = useState(initialProjectId);
+  const [highlightProjectId, setHighlightProjectId] = useState(null);
   const [viewMode, setViewMode] = useState(initialViewMode);
   const [processingProject, setProcessingProject] = useState(null);
   const activeProjectId = viewMode === 'processing'
@@ -434,6 +435,12 @@ function Dashboard() {
     return {
       ...processingProject,
       ...fromList,
+      // 프론트엔드 로컬 상태(processingProject)가 API 데이터보다 최신이므로 우선 적용
+      // imageCount: createProject 직후에는 API가 0을 반환하지만 processingProject에는 정확한 값이 있음
+      imageCount: processingProject.imageCount || fromList.imageCount || 0,
+      image_count: processingProject.image_count || fromList.image_count || 0,
+      upload_in_progress: processingProject.upload_in_progress ?? fromList.upload_in_progress,
+      upload_completed_count: processingProject.upload_completed_count ?? fromList.upload_completed_count,
       images: processingProject.images || fromList.images || projectImages
     };
   }, [processingProject, projects, projectImages]);
@@ -631,7 +638,7 @@ function Dashboard() {
     };
   }, [isResizing]);
 
-  const handleUploadComplete = async ({ projectData, files, eoFile, eoConfig, cameraModel, autoProcess, processingOptions }) => {
+  const handleUploadComplete = async ({ projectData, files, eoFile, eoConfig, cameraModel }) => {
     try {
       // 1. Create Project via API
       console.log('Creating project:', projectData);
@@ -643,6 +650,8 @@ function Dashboard() {
       console.log('Project created:', created);
 
       // 2. Initialize Images (Create records in DB)
+      // NOTE: init_multipart_upload (step 4) also creates Image records, but this step is
+      // needed first so that EO upload (step 3) can match filenames to existing Image records.
       if (files && files.length > 0) {
         console.log('Initializing image records...');
         try {
@@ -740,9 +749,10 @@ function Dashboard() {
 
         const uploader = new S3MultipartUploader(api.token);
         const controller = uploader.uploadFiles(files, projectId, {
-          concurrency: 6,
-          partConcurrency: 4,
-          partSize: 10 * 1024 * 1024, // 10MB parts
+          // HDD 환경(Local storage)에서는 파트 크기를 키우고 동시성은 낮춰 I/O 오버헤드를 줄입니다.
+          concurrency: 3,
+          partConcurrency: 2,
+          partSize: 32 * 1024 * 1024, // 32MB parts
           cameraModelName: cameraModel, // Link images to camera model
           onFileProgress: (idx, name, progress) => {
             setUploadsByProject(prev => {
@@ -820,6 +830,14 @@ function Dashboard() {
               return rest;
             });
 
+            // 업로드 완료 후 10초 뒤 진행 패널 자동 닫기 (완료 상태를 충분히 표시)
+            setTimeout(() => {
+              setUploadsByProject(prev => {
+                const { [projectId]: _, ...rest } = prev;
+                return rest;
+              });
+            }, 10000);
+
             // 썸네일 생성 대기 및 프로젝트 목록 갱신
             const attempts = 8;
             const intervalMs = 4000;
@@ -875,18 +893,6 @@ function Dashboard() {
       // Ensure project list is refreshed with new data including EO
       await refreshProjects();
       setImageRefreshKey(prev => prev + 1);
-
-      // 6. Schedule processing if auto-process is enabled
-      if (autoProcess && processingOptions) {
-        try {
-          const scheduleResult = await api.scheduleProcessing(created.id, processingOptions);
-          console.log('Processing scheduled:', scheduleResult);
-          setProcessingProject(prev => prev ? ({ ...prev, status: 'scheduled' }) : prev);
-        } catch (schedErr) {
-          console.error('Failed to schedule processing:', schedErr);
-          // Don't block — user can still manually start from ProcessingSidebar
-        }
-      }
 
     } catch (err) {
       console.error('Failed to create project:', err);

@@ -5,17 +5,25 @@ import { Loader2, Camera, Layers, X } from 'lucide-react';
 import { TiTilerOrthoLayer, RegionBoundaryLayer, MapPanes } from '../Dashboard/FootprintMap';
 import { getTileConfig, MAP_CONFIG } from '../../config/mapConfig';
 
-function FitBounds({ images, projectId, maxZoom }) {
+function FitBounds({ images, projectBounds, projectId, maxZoom }) {
     const map = useMap();
     useEffect(() => {
+        // 1순위: 이미지 EO 좌표로 줌인
         if (images && images.length > 0) {
             const bounds = L.latLngBounds(images.map(img => [img.wy, img.wx]));
             if (bounds.isValid()) {
-                // maxZoom을 초과하지 않도록 제한
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: maxZoom || 18 });
+                return;
+            }
+        }
+        // 2순위: 프로젝트 bounds(polygon 좌표)로 줌인
+        if (projectBounds && projectBounds.length > 0) {
+            const bounds = L.latLngBounds(projectBounds);
+            if (bounds.isValid()) {
                 map.fitBounds(bounds, { padding: [50, 50], maxZoom: maxZoom || 18 });
             }
         }
-    }, [images, map, projectId, maxZoom]); // Add projectId to re-trigger on project change
+    }, [images, projectBounds, map, projectId, maxZoom]);
     return null;
 }
 
@@ -63,8 +71,9 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
                 <TileLayer
                     attribution={tileConfig.attribution}
                     url={tileConfig.url}
-                    {...(tileConfig.subdomains && { subdomains: tileConfig.subdomains })}
+                    {...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {})}
                     maxZoom={tileConfig.maxZoom}
+                    minZoom={MAP_CONFIG.minZoom}
                 />
 
                 {(project?.status === '완료' || project?.status === 'completed') && (
@@ -79,7 +88,7 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
 
                 <RegionBoundaryLayer visible={true} interactive={!isProcessingMode} />
 
-                {images.length > 0 && <FitBounds images={images} projectId={project?.id} maxZoom={tileConfig.maxZoom} />}
+                {(images.length > 0 || project?.bounds) && <FitBounds images={images} projectBounds={project?.bounds} projectId={project?.id} maxZoom={tileConfig.maxZoom} />}
 
                 {images.map(img => (
                     <CircleMarker

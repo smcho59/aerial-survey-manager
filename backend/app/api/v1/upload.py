@@ -2,6 +2,7 @@
 import json
 import hashlib
 import hmac
+import logging
 import uuid as uuid_mod
 from uuid import UUID
 from pathlib import Path
@@ -49,6 +50,8 @@ def _verify_tus_webhook_request(token: str, signature: str, body: bytes) -> None
             return
 
     raise HTTPException(status_code=403, detail="Invalid TUS webhook auth")
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/upload", tags=["Upload"])
 settings = get_settings()
@@ -708,18 +711,24 @@ async def complete_multipart_upload(
     completed = []
     failed = []
 
+    logger.info(f"[complete] project={project_id}, uploads={len(request.uploads)}, is_local={is_local}")
+
     for upload in request.uploads:
         try:
+            logger.info(f"[complete] Processing: filename={upload.filename}, upload_id={upload.upload_id}, object_key={upload.object_key}")
+
             # Validate upload_id format
             try:
                 uuid_mod.UUID(upload.upload_id)
             except ValueError:
+                logger.warning(f"[complete] Invalid upload_id format: {upload.upload_id}")
                 failed.append({"filename": upload.filename, "error": "Invalid upload_id"})
                 continue
 
             # Validate object_key belongs to this project (prevent cross-project writes)
             expected_prefix = f"images/{project_id}/"
             if not upload.object_key.startswith(expected_prefix) or ".." in upload.object_key:
+                logger.warning(f"[complete] Invalid object_key: {upload.object_key}, expected prefix: {expected_prefix}")
                 failed.append({"filename": upload.filename, "error": "Invalid object_key for this project"})
                 continue
 
@@ -730,6 +739,7 @@ async def complete_multipart_upload(
 
                 # Determine number of parts from the sorted staging files
                 part_files = sorted(staging_dir.glob("part_*"), key=lambda p: int(p.name.split("_")[1]))
+                logger.info(f"[complete] staging_dir={staging_dir}, exists={staging_dir.exists()}, part_files={len(part_files)}")
                 if not part_files:
                     failed.append({"filename": upload.filename, "error": "No uploaded parts found"})
                     continue
@@ -743,6 +753,8 @@ async def complete_multipart_upload(
                     for part_file in part_files:
                         with open(part_file, "rb") as in_f:
                             shutil.copyfileobj(in_f, out_f)
+
+                logger.info(f"[complete] Merged {len(part_files)} parts -> {final_path} ({final_path.stat().st_size} bytes)")
 
                 # Clean up staging directory
                 shutil.rmtree(staging_dir, ignore_errors=True)
@@ -764,10 +776,46 @@ async def complete_multipart_upload(
             )
             image = result.scalar_one_or_none()
 
+            # Fallback: if not found with upload_status filter, try without it
+            if not image:
+                logger.warning(
+                    f"[complete] Image not found with upload_status='uploading' for "
+                    f"filename={upload.filename}, trying without status filter..."
+                )
+                fallback_result = await db.execute(
+                    select(Image).where(
+                        Image.project_id == project_id,
+                        Image.filename == upload.filename,
+                    )
+                )
+                fallback_images = fallback_result.scalars().all()
+                if len(fallback_images) == 1:
+                    image = fallback_images[0]
+                    logger.warning(
+                        f"[complete] Fallback found image id={image.id}, "
+                        f"current status={image.upload_status} (expected 'uploading')"
+                    )
+                elif len(fallback_images) > 1:
+                    logger.warning(
+                        f"[complete] Multiple images found for filename={upload.filename}: "
+                        f"{[(str(img.id), img.upload_status) for img in fallback_images]}"
+                    )
+                    # Use the first one that isn't already completed
+                    image = next(
+                        (img for img in fallback_images if img.upload_status != "completed"),
+                        fallback_images[0]
+                    )
+                else:
+                    logger.warning(
+                        f"[complete] No image record at all for filename={upload.filename}, "
+                        f"project_id={project_id}"
+                    )
+
             if image:
                 image.upload_id = upload.upload_id
                 image.original_path = upload.object_key
                 image.upload_status = "completed"
+                logger.info(f"[complete] Image updated: id={image.id}, filename={upload.filename} -> completed")
 
                 completed.append(CompletedFileInfo(
                     filename=upload.filename,
@@ -780,7 +828,7 @@ async def complete_multipart_upload(
                     from app.workers.tasks import generate_thumbnail
                     generate_thumbnail.delay(str(image.id))
                 except Exception as e:
-                    print(f"Failed to trigger thumbnail task: {e}")
+                    logger.warning(f"Failed to trigger thumbnail task: {e}")
             else:
                 failed.append({
                     "filename": upload.filename,
@@ -788,6 +836,7 @@ async def complete_multipart_upload(
                 })
 
         except Exception as e:
+            logger.error(f"[complete] Exception for {upload.filename}: {e}", exc_info=True)
             failed.append({
                 "filename": upload.filename,
                 "error": str(e)
@@ -795,11 +844,15 @@ async def complete_multipart_upload(
 
     await db.commit()
 
+    logger.info(f"[complete] Done: completed={len(completed)}, failed={len(failed)}")
+    if failed:
+        logger.warning(f"[complete] Failed uploads: {failed}")
+
     # --- Scheduled processing trigger hook ---
     # Check if this project has a scheduled processing job and all images are now uploaded
     if completed:
         try:
-            from app.models.project import ProcessingJob, Image
+            from app.models.project import ProcessingJob
             from sqlalchemy import func
 
             # Check for a scheduled job

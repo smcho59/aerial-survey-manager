@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.database import get_db
-from app.models.user import User
+from app.models.user import Organization, User
 from app.schemas.user import (
     LoginRequest,
     RegisterRequest,
@@ -41,12 +41,20 @@ async def register(
             detail="Email already registered",
         )
     
+    # Resolve organization: use provided ID or fall back to first available org
+    org_id = request.organization_id
+    if org_id is None:
+        result = await db.execute(
+            select(Organization.id).order_by(Organization.created_at).limit(1)
+        )
+        org_id = result.scalar_one_or_none()
+
     # Create new user
     user = User(
         email=request.email,
         password_hash=hash_password(request.password),
         name=request.name,
-        organization_id=request.organization_id,
+        organization_id=org_id,
     )
     db.add(user)
     await db.flush()

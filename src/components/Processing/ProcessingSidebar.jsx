@@ -111,7 +111,9 @@ export default function ProcessingSidebar({
         normalizedProjectStatus === 'queued' ||
         normalizedProjectStatus === 'running' ||
         project?.status === '진행중' ||
-        (project?.status === '대기' && wsStatus !== 'connecting')
+        // '대기'(pending/queued)는 WS가 처리 상태를 확인한 경우에만 처리 중으로 판정
+        // (기존: wsStatus !== 'connecting' → WS 끊김 시 오판 발생)
+        (project?.status === '대기' && (wsStatus === 'processing' || wsStatus === 'queued'))
     );
     const isCancelled = (!isStarting && (normalizedProjectStatus === 'cancelled' || project?.status === '취소' || wsStatus === 'cancelled')) || hasTriggeredCancel;
     const isComplete = isProjectCompleted || wsStatus === 'complete' || wsStatus === 'completed';
@@ -548,41 +550,11 @@ export default function ProcessingSidebar({
                         2. 처리 설정 (Processing Options)
                     </h4>
 
-                    {/* Engine Selection */}
-                    <div className="space-y-2">
-                        <label className="text-xs text-slate-500 font-medium ml-1">처리 엔진</label>
-                        <select
-                            className="w-full border border-slate-200 p-2.5 rounded-lg text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none transition-all shadow-sm"
-                            value={normalizedSelectedEngine}
-                            onChange={(e) => {
-                                setStartError('');
-                                setOptions((prev) => ({ ...prev, engine: e.target.value }));
-                            }}
-                        >
-                            {processingEngines.map((engine) => (
-                                <option
-                                    key={engine.name}
-                                    value={engine.name}
-                                    disabled={!engine.enabled}
-                                >
-                                    {engine.name} {engine.enabled ? '' : '(비활성)'}
-                                </option>
-                            ))}
-                        </select>
-                        {selectedEnginePolicy && (
-                            <div className={`px-2 py-1.5 text-xs border rounded-md ${selectedEnginePolicy.enabled ? 'text-slate-600 bg-slate-50 border-slate-200' : 'text-red-700 bg-red-50 border-red-200'}`}>
-                                {selectedEnginePolicy.enabled
-                                    ? `선택된 엔진으로 처리합니다. ${selectedEnginePolicy.reason || ''}`
-                                    : `선택한 엔진은 사용 불가 상태입니다. ${selectedEnginePolicy.reason || ''}`
-                                }
-                            </div>
-                        )}
-                        {startError && (
-                            <div className="px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md">
-                                {startError}
-                            </div>
-                        )}
-                    </div>
+                    {startError && (
+                        <div className="px-2 py-1.5 text-xs text-red-700 bg-red-50 border border-red-200 rounded-md">
+                            {startError}
+                        </div>
+                    )}
 
                     {/* Preset Selector */}
                     <div className="space-y-2">
@@ -640,9 +612,9 @@ export default function ProcessingSidebar({
                     const isDisabled = !hasEnabledEngine || !hasImages || uploadsInProgress || isProcessingNow || !selectedPresetId || !isSelectedEngineEnabled;
 
                     let buttonText = '처리 시작';
-                    if (!hasImages) buttonText = '업로드된 이미지 없음';
-                    else if (frontendUploading) buttonText = `업로드 중... (${activeUploads.filter(u => u.status === 'completed').length}/${activeUploads.length})`;
+                    if (frontendUploading) buttonText = `업로드 중... (${activeUploads.filter(u => u.status === 'completed').length}/${activeUploads.length})`;
                     else if (backendUploading) buttonText = `업로드 중... (${uploadCompleted}/${totalImages})`;
+                    else if (!hasImages) buttonText = '업로드된 이미지 없음';
                     else if (!hasEnabledEngine) buttonText = '사용 가능한 처리 엔진 없음';
                     else if (!isSelectedEngineEnabled) buttonText = `${normalizedSelectedEngine} 사용 불가`;
                     else if (!selectedPresetId) buttonText = '프리셋 선택 필요';

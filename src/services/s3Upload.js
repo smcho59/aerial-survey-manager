@@ -150,7 +150,20 @@ export class S3MultipartUploader {
 
             // 3. Complete all uploads in batch
             if (!abortController.aborted && results.length > 0) {
-                await this.completeMultipartUploads(projectId, results);
+                try {
+                    const completeResult = await this.completeMultipartUploads(projectId, results);
+
+                    // Check for backend failures (API returns 200 even when individual files fail)
+                    if (completeResult?.failed?.length > 0) {
+                        console.error('Some uploads failed backend completion:', completeResult.failed);
+                        for (const fail of completeResult.failed) {
+                            onError?.(0, fail.filename, new Error(fail.error || 'Upload completion failed'));
+                        }
+                    }
+                } catch (completeError) {
+                    console.error('Failed to complete multipart uploads:', completeError);
+                    // 개별 파일은 이미 업로드 완료 — 배치 완료 실패해도 onAllComplete 호출
+                }
                 onAllComplete?.();
             }
 

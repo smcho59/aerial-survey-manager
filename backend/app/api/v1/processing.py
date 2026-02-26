@@ -431,19 +431,29 @@ async def start_processing(
     project.status = "queued"
     project.progress = 0
     
-    # Submit to Celery based on selected engine's dedicated queue
+    # Commit DB changes BEFORE submitting to Celery (prevents race condition
+    # where worker picks up the task before the transaction is committed)
+    await db.commit()
+
     from app.workers.tasks import process_orthophoto
 
     queue_name = _get_queue_name(options.engine)
-    
-    task = process_orthophoto.apply_async(
-        args=[str(job.id), str(project_id), options.model_dump()],
-        queue=queue_name,
-    )
-    
-    # Store celery task ID
-    job.celery_task_id = task.id
-    await db.commit()
+
+    try:
+        task = process_orthophoto.apply_async(
+            args=[str(job.id), str(project_id), options.model_dump()],
+            queue=queue_name,
+        )
+        # Store celery task ID (non-critical)
+        job.celery_task_id = task.id
+        await db.commit()
+    except Exception:
+        # Celery submission failed — revert DB state
+        job.status = "error"
+        job.error_message = "태스크 큐 전송 실패"
+        project.status = "error"
+        await db.commit()
+        raise
     
     return ProcessingJobResponse.model_validate(job)
 
@@ -562,8 +572,9 @@ async def get_processing_status(
         select(ProcessingJob)
         .where(ProcessingJob.project_id == project_id)
         .order_by(ProcessingJob.started_at.desc().nullsfirst())
+        .limit(1)
     )
-    job = result.scalar_one_or_none()
+    job = result.scalars().first()
     
     if not job:
         raise HTTPException(
@@ -835,8 +846,9 @@ async def websocket_status(
             select(ProcessingJob)
             .where(ProcessingJob.project_id == project_id)
             .order_by(ProcessingJob.started_at.desc().nullsfirst())
+            .limit(1)
         )
-        job = result.scalar_one_or_none()
+        job = result.scalars().first()
         if job:
             status_payload = _read_processing_status_file(project_id)
             await websocket.send_json({

@@ -33,9 +33,9 @@ export const MAP_CONFIG = {
     defaultZoom: 7,
     minZoom: 5,
 
-    // maxZoom: 모든 환경에서 18로 통일
+    // maxZoom: 오프라인은 실제 타일 최대 줌에 맞춤
     maxZoom: {
-        offline: 18,
+        offline: 16,
         online: 18,
     },
 };
