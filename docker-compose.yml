@@ -78,6 +78,17 @@ services:
       - ${TILES_PATH:-/data/tiles}:/data/tiles:ro
       # 권역 GeoJSON 데이터 (초기 시드용)
       - ./data:/app/data:ro
+      # 호스트 파일시스템 접근 (로컬 이미지 불러오기용)
+      # rslave: 외장하드 핫플러그 시 컨테이너에 실시간 반영
+      - type: bind
+        source: /media
+        target: /media
+        read_only: true
+        bind:
+          propagation: rslave
+      - /mnt:/mnt:ro
+      - /run/media:/run/media:ro
+      - /home:/home:ro
     depends_on:
       db:
         condition: service_healthy
@@ -174,7 +185,7 @@ services:
       context: .
       dockerfile: engines/metashape/Dockerfile
     working_dir: /app
-    command: celery -A app.workers.tasks worker -Q metashape --loglevel=info --concurrency=4 -n worker-engine@%h
+    command: celery -A app.workers.tasks worker -Q metashape --loglevel=info --concurrency=1 -n worker-engine@%h
     restart: always
     # Graceful shutdown (라이센스는 유지됨 - 오프라인 환경 지원)
     stop_signal: SIGTERM
@@ -215,6 +226,17 @@ services:
       - ${PROCESSING_DATA_PATH:-${DATA_PATH:-./data}/processing}:/data/processing
       - ${LOCAL_STORAGE_PATH:-${DATA_PATH:-./data}/storage}:/data/storage
       - engine-license:/var/tmp/agisoft/licensing
+      # 호스트 파일시스템 접근 (로컬 이미지 symlink용)
+      # rslave: 외장하드 핫플러그 시 컨테이너에 실시간 반영
+      - type: bind
+        source: /media
+        target: /media
+        read_only: true
+        bind:
+          propagation: rslave
+      - /mnt:/mnt:ro
+      - /run/media:/run/media:ro
+      - /home:/home:ro
     depends_on:
       - redis
       - db
@@ -273,6 +295,17 @@ services:
       - ./backend:/app
       - ${LOCAL_STORAGE_PATH:-${DATA_PATH:-./data}/storage}:/data/storage
       - ${PROCESSING_DATA_PATH:-${DATA_PATH:-./data}/processing}:/data/processing
+      # 호스트 파일시스템 접근 (로컬 이미지 썸네일 생성용)
+      # rslave: 외장하드 핫플러그 시 컨테이너에 실시간 반영
+      - type: bind
+        source: /media
+        target: /media
+        read_only: true
+        bind:
+          propagation: rslave
+      - /mnt:/mnt:ro
+      - /run/media:/run/media:ro
+      - /home:/home:ro
     depends_on:
       - redis
     networks:

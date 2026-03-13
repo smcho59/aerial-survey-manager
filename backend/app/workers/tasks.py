@@ -175,7 +175,13 @@ def _upload_cog_to_storage(cog_path, object_name: str, storage) -> Path:
 
 
 def _prepare_images(storage, images, input_dir: Path, update_progress) -> int:
-    """Download or symlink images for processing. Returns total source size."""
+    """Symlink or download images for processing. Returns total source size.
+
+    For local-import images (original_path is an absolute filesystem path),
+    symlinks are created directly without going through the storage backend.
+    For storage-managed images (relative object keys), the storage backend
+    is used to resolve or download the file.
+    """
     total_source_size = 0
     for i, image in enumerate(images):
         if image.file_size:
@@ -183,25 +189,72 @@ def _prepare_images(storage, images, input_dir: Path, update_progress) -> int:
 
         if image.original_path:
             target_path = input_dir / image.filename
-            local_src = storage.get_local_path(image.original_path)
+            src_path = image.original_path
 
-            if local_src and os.path.exists(local_src):
-                # Remove stale symlink/file from previous interrupted run
-                if target_path.exists() or target_path.is_symlink():
-                    target_path.unlink()
-                try:
-                    os.symlink(local_src, str(target_path))
-                except OSError:
-                    import shutil
-                    shutil.copy2(local_src, str(target_path))
+            # Determine if this is an absolute local path (local-import)
+            # or a storage object key (e.g. "images/{project_id}/file.jpg")
+            if os.path.isabs(src_path):
+                # Local-import: use the absolute path directly
+                if not os.path.exists(src_path):
+                    raise FileNotFoundError(
+                        f"원본 이미지를 찾을 수 없습니다: {src_path} "
+                        f"(이미지: {image.filename})"
+                    )
+                local_src = src_path
             else:
-                storage.download_file(image.original_path, str(target_path))
+                # Storage-managed: resolve via storage backend
+                local_src = storage.get_local_path(src_path)
+                if not local_src or not os.path.exists(local_src):
+                    try:
+                        storage.download_file(src_path, str(target_path))
+                    except FileNotFoundError:
+                        raise FileNotFoundError(
+                            f"저장소에서 이미지를 찾을 수 없습니다: {src_path} "
+                            f"(이미지: {image.filename})"
+                        )
+                    download_progress = 5 + int((i + 1) / len(images) * 15)
+                    update_progress(download_progress, f"{i + 1}/{len(images)} 이미지 준비 완료")
+                    continue
+
+            # Remove stale symlink/file from previous interrupted run
+            if target_path.exists() or target_path.is_symlink():
+                target_path.unlink()
+            try:
+                os.symlink(local_src, str(target_path))
+            except OSError:
+                import shutil
+                shutil.copy2(local_src, str(target_path))
 
             download_progress = 5 + int((i + 1) / len(images) * 15)
             update_progress(download_progress, f"{i + 1}/{len(images)} 이미지 준비 완료")
 
     return total_source_size
 
+
+
+# ============================================================================
+# Thumbnail throttling during active processing
+# ============================================================================
+
+PROCESSING_ACTIVE_KEY = "metashape:processing_active"
+THUMBNAIL_DEFER_SECONDS = 60
+
+
+def _set_processing_flag(active: bool):
+    """Set or clear the processing-active flag in Redis."""
+    import redis
+    r = redis.from_url(settings.REDIS_URL)
+    if active:
+        r.set(PROCESSING_ACTIVE_KEY, "1", ex=7200)  # 2h TTL safety net
+    else:
+        r.delete(PROCESSING_ACTIVE_KEY)
+
+
+def _is_processing_active() -> bool:
+    """Check whether Metashape processing is running."""
+    import redis
+    r = redis.from_url(settings.REDIS_URL)
+    return r.exists(PROCESSING_ACTIVE_KEY) > 0
 
 
 # ============================================================================
@@ -241,6 +294,9 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
             job.started_at = datetime.utcnow()
             project.status = "processing"
             db.commit()
+
+            # Throttle thumbnail tasks while processing is active
+            _set_processing_flag(True)
 
             queue_wait_seconds = None
             queued_at = getattr(job, 'queued_at', None) or getattr(job, 'created_at', None)
@@ -541,9 +597,12 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
                 metrics=final_metrics,
             )
 
+            # Resume thumbnail processing
+            _set_processing_flag(False)
+
             # Broadcast completion via WebSocket AFTER all DB updates
             _broadcast_ws(project_id, "completed", 100, "Processing completed successfully")
-            
+
             return {
                 "status": "completed",
                 "result_path": result_object_name,
@@ -582,9 +641,12 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
             except NameError:
                 pass  # write_status_file/phase_timings not yet defined (early failure)
             
+            # Resume thumbnail processing
+            _set_processing_flag(False)
+
             # Broadcast error via WebSocket
             _broadcast_ws(project_id, "error", 0, user_friendly_error)
-            
+
             raise
 
 
@@ -603,6 +665,15 @@ def generate_thumbnail(self, image_id: str, force: bool = False):
         image_id: UUID of the image
         force: If True, regenerate even if thumbnail already exists
     """
+    # Defer if Metashape processing is active (avoid I/O contention)
+    if _is_processing_active():
+        generate_thumbnail.apply_async(
+            args=[image_id],
+            kwargs={"force": force},
+            countdown=THUMBNAIL_DEFER_SECONDS,
+        )
+        return {"status": "deferred", "message": "Processing active, retrying later"}
+
     from PIL import Image as PILImage
     # Increase limit for large aerial images (e.g., UltraCam Eagle: 17310x11310 = 195MP)
     PILImage.MAX_IMAGE_PIXELS = 300000000  # 300 megapixels
@@ -625,16 +696,20 @@ def generate_thumbnail(self, image_id: str, force: bool = False):
         storage = get_storage()
 
         # Download original (or use local path directly)
-        local_src = storage.get_local_path(image.original_path)
-        if local_src and os.path.exists(local_src):
-            temp_path = local_src  # Use directly, no download needed
+        # For local-import images, original_path is an absolute filesystem path
+        if os.path.isabs(image.original_path) and os.path.exists(image.original_path):
+            temp_path = image.original_path  # Use directly, no download needed
         else:
-            temp_path = f"/tmp/{image_id}_{image.filename}"
-            try:
-                storage.download_file(image.original_path, temp_path)
-            except Exception as e:
-                print(f"Failed to download original image {image_id}: {e}")
-                raise  # Will trigger retry
+            local_src = storage.get_local_path(image.original_path)
+            if local_src and os.path.exists(local_src):
+                temp_path = local_src  # Use directly, no download needed
+            else:
+                temp_path = f"/tmp/{image_id}_{image.filename}"
+                try:
+                    storage.download_file(image.original_path, temp_path)
+                except Exception as e:
+                    print(f"Failed to download original image {image_id}: {e}")
+                    raise  # Will trigger retry
 
         # Generate thumbnail
         try:

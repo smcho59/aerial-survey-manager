@@ -638,7 +638,7 @@ function Dashboard() {
     };
   }, [isResizing]);
 
-  const handleUploadComplete = async ({ projectData, files, eoFile, eoConfig, cameraModel }) => {
+  const handleUploadComplete = async ({ projectData, files, eoFile, eoConfig, cameraModel, sourceDir, filePaths }) => {
     try {
       // 1. Create Project via API
       console.log('Creating project:', projectData);
@@ -649,7 +649,111 @@ function Dashboard() {
       });
       console.log('Project created:', created);
 
-      // 2. Initialize Images (Create records in DB)
+      // 2a. Local path import mode - register images by path
+      if (sourceDir) {
+        console.log('Registering local images from:', sourceDir);
+        try {
+          const importResult = await api.localImport(created.id, sourceDir, filePaths);
+          console.log('Local import result:', importResult);
+          if (importResult.registered === 0) {
+            alert('이미지 파일을 찾을 수 없습니다: ' + sourceDir);
+            // Clean up the orphaned project that was just created
+            try {
+              await deleteProject(created.id);
+              console.log('Cleaned up orphaned project:', created.id);
+            } catch (cleanupErr) {
+              console.error('Failed to clean up orphaned project:', cleanupErr);
+            }
+            return;
+          }
+          // Set file count from import result for downstream use
+          files = []; // Clear browser files
+          const localImageCount = importResult.registered;
+
+          // 3. Upload EO Data if exists
+          let imagesToUse = generatePlaceholderImages(created.id, localImageCount);
+          if (eoFile) {
+            console.log('Uploading EO data...');
+            try {
+              await api.uploadEoData(created.id, eoFile, eoConfig);
+
+              const maxRetries = 5;
+              const baseDelay = 800;
+              for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                const delay = baseDelay * attempt;
+                console.log(`Fetching images (attempt ${attempt}/${maxRetries}) after ${delay}ms...`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+
+                const fetchedImages = await fetchImages(created.id);
+                if (fetchedImages && fetchedImages.length > 0) {
+                  const points = fetchedImages.map(img => {
+                    const eo = img.exterior_orientation;
+                    return {
+                      id: img.id,
+                      name: img.filename,
+                      wx: eo ? eo.x : 0,
+                      wy: eo ? eo.y : 0,
+                      z: eo ? eo.z : null,
+                      omega: eo ? eo.omega : null,
+                      phi: eo ? eo.phi : null,
+                      kappa: eo ? eo.kappa : null,
+                      hasEo: !!eo,
+                      thumbnail_url: img.thumbnail_url || null,
+                      file_size: img.file_size || null,
+                      thumbnailColor: `hsl(${Math.random() * 360}, 70%, 80%)`
+                    };
+                  });
+
+                  const imagesWithEo = points.filter(p => p.hasEo);
+                  if (imagesWithEo.length > 0) {
+                    console.log(`Found ${imagesWithEo.length} images with EO data`);
+                    imagesToUse = imagesWithEo;
+                    setProjectImages(imagesToUse);
+                    break;
+                  }
+                  if (attempt === maxRetries) {
+                    console.warn('No EO data found after all retries, using images without EO');
+                    imagesToUse = points;
+                    setProjectImages(imagesToUse);
+                  }
+                }
+              }
+              alert("프로젝트 생성이 완료되었습니다.");
+            } catch (e) {
+              console.error(e);
+              alert("Failed to upload EO data: " + e.message);
+            }
+          } else {
+            alert(`프로젝트 생성 완료. ${localImageCount}개 이미지 등록됨.`);
+          }
+
+          // 5. Update UI State for local-import (no upload needed)
+          const projectForProcessing = {
+            ...created,
+            status: '대기',
+            imageCount: localImageCount,
+            image_count: localImageCount,
+            images: imagesToUse,
+            bounds: { x: 30, y: 30, w: 40, h: 40 },
+            cameraModel: cameraModel,
+            upload_in_progress: false,
+            upload_completed_count: localImageCount,
+          };
+
+          setProcessingProject(projectForProcessing);
+          setViewMode('processing');
+          window.history.pushState({ viewMode: 'processing' }, '', `?viewMode=processing&projectId=${created.id}`);
+          await refreshProjects();
+          setImageRefreshKey(prev => prev + 1);
+          return; // Done - skip the HTTP upload flow below
+        } catch (err) {
+          console.error('Local import failed:', err);
+          alert('로컬 이미지 등록 실패: ' + err.message);
+          return;
+        }
+      }
+
+      // 2b. Initialize Images for HTTP upload (Create records in DB)
       // NOTE: init_multipart_upload (step 4) also creates Image records, but this step is
       // needed first so that EO upload (step 3) can match filenames to existing Image records.
       if (files && files.length > 0) {

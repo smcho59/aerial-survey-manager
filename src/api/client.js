@@ -310,6 +310,18 @@ class ApiClient {
         });
     }
 
+    // --- Local Import ---
+    async localImport(projectId, sourceDir, filePaths = null) {
+        const body = { source_dir: sourceDir };
+        if (filePaths && filePaths.length > 0) {
+            body.file_paths = filePaths;
+        }
+        return this.request(`/upload/projects/${projectId}/local-import`, {
+            method: 'POST',
+            body: JSON.stringify(body),
+        });
+    }
+
     // --- Processing ---
     async startProcessing(projectId, options, force = false, forceRestart = false) {
         const params = new URLSearchParams();
@@ -392,6 +404,19 @@ class ApiClient {
                 ws.close();
             },
         };
+    }
+
+    // --- Filesystem Browser ---
+    async getFilesystemRoots() {
+        return this.request('/filesystem/roots');
+    }
+
+    async browseFilesystem(path = '/', fileTypes = 'images') {
+        return this.request(`/filesystem/browse?path=${encodeURIComponent(path)}&file_types=${encodeURIComponent(fileTypes)}`);
+    }
+
+    async readTextFile(path) {
+        return this.request(`/filesystem/read-text?path=${encodeURIComponent(path)}`);
     }
 
     // --- Camera Models ---

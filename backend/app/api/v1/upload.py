@@ -3,6 +3,7 @@ import json
 import hashlib
 import hmac
 import logging
+import os
 import uuid as uuid_mod
 from uuid import UUID
 from pathlib import Path
@@ -343,6 +344,169 @@ async def list_project_images(
             print(f"Failed to trigger thumbnail regeneration: {e}")
 
     return response
+
+
+# ============================================================================
+# Local Path Import - Register images by local filesystem path (no file copy)
+# ============================================================================
+
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".tif", ".tiff", ".png"}
+
+
+class LocalImportRequest(BaseModel):
+    """Request body for local path import."""
+    source_dir: str
+    file_paths: Optional[List[str]] = None  # Specific files to register (individual selection mode)
+
+
+class LocalImportResponse(BaseModel):
+    """Response for local path import."""
+    registered: int
+    skipped: int
+    total_size: int
+
+
+@router.post("/projects/{project_id}/local-import", response_model=LocalImportResponse)
+async def local_import(
+    project_id: UUID,
+    request: LocalImportRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Register local image files by scanning a directory path.
+
+    Instead of uploading files via HTTP, this endpoint scans a local directory
+    for image files and creates Image records pointing to the original paths.
+    No files are copied or moved.
+    """
+    # Check permission
+    permission_checker = PermissionChecker("edit")
+    if not await permission_checker.check(str(project_id), current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied",
+        )
+
+    scoped_project = await _get_scoped_project(project_id, current_user, db)
+    if not scoped_project:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found",
+        )
+
+    # Basic path validation: require absolute path with no traversal components
+    raw_path = request.source_dir
+    if not raw_path.startswith("/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source_dir must be an absolute path (starting with /)",
+        )
+    source_dir = Path(raw_path).resolve()
+    if ".." in Path(raw_path).parts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="source_dir must not contain '..' components",
+        )
+
+    logger.info(f"[local-import] Scanning directory: {source_dir} (raw={raw_path})")
+
+    if not source_dir.is_dir():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Directory not found: {request.source_dir}",
+        )
+
+    # Scan for image files or use explicitly provided file paths
+    image_files = []
+    if request.file_paths:
+        # Individual file selection mode
+        for fp in request.file_paths:
+            p = Path(fp)
+            if not p.is_absolute():
+                continue
+            if p.is_file() and p.suffix.lower() in IMAGE_EXTENSIONS:
+                image_files.append(p)
+    else:
+        # Folder scan mode
+        for entry in sorted(source_dir.iterdir()):
+            if entry.is_file() and entry.suffix.lower() in IMAGE_EXTENSIONS:
+                image_files.append(entry)
+
+    if not image_files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"No image files found in {request.source_dir} (supported: {', '.join(IMAGE_EXTENSIONS)})",
+        )
+
+    # Check for existing images to avoid duplicates
+    filenames = [f.name for f in image_files]
+    existing_result = await db.execute(
+        select(Image.filename).where(
+            Image.project_id == project_id,
+            Image.filename.in_(filenames),
+        )
+    )
+    existing_filenames = {row[0] for row in existing_result.all()}
+
+    registered = 0
+    skipped = 0
+    total_size = 0
+
+    for file_path in image_files:
+        if file_path.name in existing_filenames:
+            skipped += 1
+            continue
+
+        try:
+            file_size = os.path.getsize(file_path)
+        except OSError as exc:
+            logger.warning(
+                f"[local-import] Skipping file (cannot read size): {file_path} - {exc}"
+            )
+            skipped += 1
+            continue
+
+        total_size += file_size
+
+        image = Image(
+            project_id=project_id,
+            filename=file_path.name,
+            original_path=str(file_path.resolve()),
+            file_size=file_size,
+            upload_status="completed",
+        )
+        db.add(image)
+        registered += 1
+
+    await db.commit()
+
+    # Trigger thumbnail generation for newly registered images
+    if registered > 0:
+        try:
+            # Re-query to get the image IDs we just created
+            new_images_result = await db.execute(
+                select(Image.id).where(
+                    Image.project_id == project_id,
+                    Image.filename.in_([f.name for f in image_files if f.name not in existing_filenames]),
+                )
+            )
+            from app.workers.tasks import generate_thumbnail
+            for row in new_images_result.all():
+                generate_thumbnail.delay(str(row[0]))
+        except Exception as e:
+            logger.warning(f"Failed to trigger thumbnail generation: {e}")
+
+    logger.info(
+        f"[local-import] project={project_id}, registered={registered}, "
+        f"skipped={skipped}, total_size={total_size}"
+    )
+
+    return LocalImportResponse(
+        registered=registered,
+        skipped=skipped,
+        total_size=total_size,
+    )
 
 
 @router.post("/projects/{project_id}/images/regenerate-thumbnails")
