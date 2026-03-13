@@ -1,8 +1,8 @@
-# 작업 진행 상황
+# 작업 완료 기록 — F8
 
 > 완료된 작업: [PROGRESS_F2.md](PROGRESS_F2.md) · [PROGRESS_F3.md](PROGRESS_F3.md) · [PROGRESS_F7.md](PROGRESS_F7.md)
 
-## F8. 처리화면 지도 뷰 자유 이동 및 원래 범위 복귀 버튼 - 2026-03-13
+## F8. 처리화면 지도 뷰 자유 이동 및 원래 범위 복귀 버튼 - 2026-03-13 (커밋: 248200e)
 
 ### 요구사항
 처리화면에서 지도 뷰포인트가 정사영상 바운더리에 고정되어 주변 이동이 불가능한 문제 해결.
@@ -26,8 +26,8 @@
 - [x] D1. UX 관점 검토
 - [x] D2. 전체 변경사항 통합 검토
 - [x] D3. 배포 가능성 판단
-- [ ] 🚪 최종 승인
-- [ ] D4. 커밋 및 PR
+- [x] 🚪 최종 승인
+- [x] D4. 커밋 (248200e)
 
 ### A1. 구현 계획
 
@@ -40,16 +40,23 @@
 #### 변경 파일 (1개, FE만)
 
 **`src/components/Project/ProjectMap.jsx`**
-1. `FitBounds` 수정: `projectId`별 1회만 fitBounds 실행 (ref로 추적)
+1. `FitBounds` 수정: `projectId`별 1회만 fitBounds 실행 (`fittedProjectRef`로 추적)
 2. `MapRefSetter` 헬퍼: MapContainer 내부 map 인스턴스를 외부 ref에 노출
 3. "원래 범위로" 플로팅 버튼 추가 (Crosshair 아이콘 40px, 배경지도 토글 아래)
+4. 버튼 그룹화: 배경지도 토글 + 범위 복귀 버튼을 `flex flex-col gap-2` 컨테이너로 묶음
 
 ### A2. 계획 검토 결과
 - FitBounds를 projectId별 1회만 실행 → 프로젝트 전환 시 정상 fitBounds, 같은 프로젝트 내 패닝 시 재설정 안됨
-- TiTilerOrthoLayer의 fitBounds는 fittedBoundsRef로 이미 관리됨 → 추가 수정 불필요
+- TiTilerOrthoLayer의 fitBounds는 `fittedBoundsRef`로 이미 관리됨 → 추가 수정 불필요
 
 ### A3. 과도 설계 검토 결과
 - 변경 파일 1개, 최소 변경 — 과도하지 않음
+
+### 변경 파일 요약
+
+| 파일 | 변경 내용 |
+|---|---|
+| `src/components/Project/ProjectMap.jsx` | FitBounds projectId별 1회 제한, MapRefSetter 추가, Crosshair 복귀 버튼, 버튼 그룹화 |
 
 ### 회귀 기록
 (없음)
