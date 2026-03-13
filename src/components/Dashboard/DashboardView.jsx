@@ -504,7 +504,7 @@ export default function DashboardView({
 
             {/* WIDE LAYOUT: Map (left) + Stats (right) side by side */}
             {isWideLayout ? (
-                <div className="grid grid-cols-2 gap-6" style={{ minHeight: 'calc(100vh - 180px)' }}>
+                <div className="grid grid-cols-2 gap-6" style={{ height: 'calc(100vh - 180px)' }}>
                     {/* Left Column - Footprint Map (full height) */}
                     <div className="flex flex-col">
                         <FootprintMap
@@ -577,7 +577,8 @@ export default function DashboardView({
                             const handleMouseMove = (moveEvent) => {
                                 if (!isDragging.current) return;
                                 const deltaY = moveEvent.clientY - startY.current;
-                                const newHeight = Math.max(200, Math.min(600, startHeight.current + deltaY));
+                                const maxH = window.innerHeight - 200;
+                                const newHeight = Math.max(200, Math.min(maxH, startHeight.current + deltaY));
                                 setMapHeight(newHeight);
                             };
 

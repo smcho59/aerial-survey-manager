@@ -111,7 +111,7 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
                     <TiTilerOrthoLayer
                         projectId={project.id}
                         visible={true}
-                        opacity={0.8}
+                        opacity={1.0}
                         onLoadComplete={() => setIsLoading(false)}
                         onLoadError={() => setIsLoading(false)}
                         showBasemap={showBasemap}

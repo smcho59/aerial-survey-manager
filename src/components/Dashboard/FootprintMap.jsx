@@ -672,7 +672,6 @@ export function RegionBoundaryLayer({ visible = true, onRegionClick, activeRegio
 function FootprintMapHeader({
     showRegions, setShowRegions,
     showFootprints, setShowFootprints,
-    footprintOpacity, setFootprintOpacity,
     selectedCogProject, cogLoadStatus, cogError,
 }) {
     return (
@@ -683,23 +682,6 @@ function FootprintMapHeader({
             </div>
 
             <div className="flex items-center gap-4">
-
-
-                {showFootprints && (
-                    <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-slate-500">영역 투명도</span>
-                        <input
-                            type="range"
-                            min="0"
-                            max="100"
-                            value={footprintOpacity * 100}
-                            onChange={(e) => setFootprintOpacity(e.target.value / 100)}
-                            className="w-16 h-1 accent-violet-500"
-                        />
-                        <span className="text-xs text-slate-400 w-6">{Math.round(footprintOpacity * 100)}%</span>
-                    </div>
-                )}
-
                 <div className="flex gap-3 text-xs">
                     <button
                         onClick={() => setShowFootprints(!showFootprints)}
@@ -891,7 +873,7 @@ export function FootprintMap({
     const [footprintOpacity, setFootprintOpacity] = useState(0.5);
 
     // COG (orthophoto) opacity control
-    const [cogOpacity, setCogOpacity] = useState(0.8);
+    const [cogOpacity, setCogOpacity] = useState(1.0);
 
     // Selected project for COG overlay (highlighted or selected, if completed)
     const activeProjectId = highlightProjectId || selectedProjectId;
@@ -937,7 +919,6 @@ export function FootprintMap({
             <FootprintMapHeader
                 showRegions={showRegions} setShowRegions={setShowRegions}
                 showFootprints={showFootprints} setShowFootprints={setShowFootprints}
-                footprintOpacity={footprintOpacity} setFootprintOpacity={setFootprintOpacity}
                 selectedCogProject={selectedCogProject}
                 cogLoadStatus={cogLoadStatus} cogError={cogError}
             />
@@ -1005,18 +986,10 @@ export function FootprintMap({
                         const isHovered = fp.id === hoveredProjectId;
                         const colors = isHighlighted ? STATUS_COLORS.highlight : STATUS_COLORS[fp.status];
 
-                        // 호버 시 강조 효과
                         const getStrokeColor = () => {
                             if (isHighlighted) return highlightPulse ? '#fbbf24' : '#d97706';
                             if (isSelected) return '#2563eb';
-                            if (isHovered) return '#7c3aed'; // 보라색 (권역과 구분)
                             return colors.stroke;
-                        };
-                        const getFillColor = () => {
-                            if (isHighlighted) return highlightPulse ? '#fde68a' : '#fbbf24';
-                            if (isSelected) return '#60a5fa';
-                            if (isHovered) return '#a78bfa'; // 연보라색
-                            return colors.fill;
                         };
 
                         return (
@@ -1026,10 +999,9 @@ export function FootprintMap({
                                 pane={PROJECT_PANE}
                                 pathOptions={{
                                     color: getStrokeColor(),
-                                    fillColor: getFillColor(),
-                                    fillOpacity: (isHighlighted || isSelected || isHovered) ? Math.min(footprintOpacity + 0.2, 1) : footprintOpacity,
-                                    weight: (isHighlighted || isSelected || isHovered) ? 4 : 2,
-                                    bubblingMouseEvents: false, // 권역 레이어로 이벤트 전파 방지
+                                    fillOpacity: 0,
+                                    weight: (isHighlighted || isSelected) ? 12 : 6,
+                                    bubblingMouseEvents: false,
                                 }}
                                 eventHandlers={{
                                     click: (e) => {
@@ -1052,12 +1024,7 @@ export function FootprintMap({
                                         }
                                     },
                                     mouseover: (e) => {
-                                        setHoveredProjectId(fp.id);
-                                        // Leaflet 레이어를 앞으로 가져오기
                                         e.target.bringToFront();
-                                    },
-                                    mouseout: () => {
-                                        setHoveredProjectId(null);
                                     },
                                 }}
                             >
