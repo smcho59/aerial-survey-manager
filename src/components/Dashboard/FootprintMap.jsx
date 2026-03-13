@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Rectangle, Popup, Tooltip, useMap, GeoJSON } f
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../../api/client';
-import { Layers, Eye, EyeOff, ChevronRight, X } from 'lucide-react';
+import { Layers, Eye, EyeOff, ChevronRight, X, Map as MapIcon } from 'lucide-react';
 import proj4 from 'proj4';
 import { getTileConfig, MAP_CONFIG } from '../../config/mapConfig';
 
@@ -866,6 +866,19 @@ export function FootprintMap({
     const [showRegions, setShowRegions] = useState(true);
     const [showFootprints, setShowFootprints] = useState(true);
 
+    // Basemap visibility (persisted in localStorage)
+    const [showBasemap, setShowBasemap] = useState(() => {
+        const saved = localStorage.getItem('basemap_visible');
+        return saved === null ? true : saved === 'true';
+    });
+    const toggleBasemap = useCallback(() => {
+        setShowBasemap(prev => {
+            const next = !prev;
+            localStorage.setItem('basemap_visible', String(next));
+            return next;
+        });
+    }, []);
+
     // Footprint (bounding box) opacity control
     const [footprintOpacity, setFootprintOpacity] = useState(0.5);
 
@@ -952,7 +965,7 @@ export function FootprintMap({
 
 
                     {/* 베이스맵 타일 레이어 - 오프라인/온라인 설정 기반 */}
-                    {(() => {
+                    {showBasemap && (() => {
                         const tileConfig = getTileConfig();
                         return (
                             <TileLayer
@@ -1099,6 +1112,14 @@ export function FootprintMap({
                     />
                 </MapContainer>
 
+                {/* 배경지도 토글 버튼 */}
+                <button
+                    onClick={toggleBasemap}
+                    className={`absolute top-3 right-3 z-[1000] p-2 rounded-lg shadow-md border transition-colors ${showBasemap ? 'bg-white border-slate-200 text-emerald-600 hover:bg-emerald-50' : 'bg-slate-100 border-slate-300 text-slate-400 hover:bg-slate-200'}`}
+                    title={showBasemap ? '배경지도 숨기기' : '배경지도 표시'}
+                >
+                    <MapIcon size={40} />
+                </button>
             </div >
         </div >
     );

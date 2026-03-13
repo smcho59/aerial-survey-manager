@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip, useMap } from 'react-leaflet';
 import L from 'leaflet';
-import { Loader2, Camera, Layers, X } from 'lucide-react';
+import { Loader2, Camera, Layers, X, Map as MapIcon } from 'lucide-react';
 import { TiTilerOrthoLayer, RegionBoundaryLayer, MapPanes } from '../Dashboard/FootprintMap';
 import { getTileConfig, MAP_CONFIG } from '../../config/mapConfig';
 
@@ -29,6 +29,19 @@ function FitBounds({ images, projectBounds, projectId, maxZoom }) {
 
 export default function ProjectMap({ project, isProcessingMode, selectedImageId, onSelectImage }) {
     const [isLoading, setIsLoading] = useState(false);
+
+    // Basemap visibility (persisted in localStorage, shared with FootprintMap)
+    const [showBasemap, setShowBasemap] = useState(() => {
+        const saved = localStorage.getItem('basemap_visible');
+        return saved === null ? true : saved === 'true';
+    });
+    const toggleBasemap = useCallback(() => {
+        setShowBasemap(prev => {
+            const next = !prev;
+            localStorage.setItem('basemap_visible', String(next));
+            return next;
+        });
+    }, []);
 
     useEffect(() => {
         if (project?.status === '완료' || project?.status === 'completed') {
@@ -68,13 +81,15 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
                 zoomControl={false}
             >
                 <MapPanes />
-                <TileLayer
-                    attribution={tileConfig.attribution}
-                    url={tileConfig.url}
-                    {...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {})}
-                    maxZoom={tileConfig.maxZoom}
-                    minZoom={MAP_CONFIG.minZoom}
-                />
+                {showBasemap && (
+                    <TileLayer
+                        attribution={tileConfig.attribution}
+                        url={tileConfig.url}
+                        {...(tileConfig.subdomains ? { subdomains: tileConfig.subdomains } : {})}
+                        maxZoom={tileConfig.maxZoom}
+                        minZoom={MAP_CONFIG.minZoom}
+                    />
+                )}
 
                 {(project?.status === '완료' || project?.status === 'completed') && (
                     <TiTilerOrthoLayer
@@ -180,6 +195,15 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
                     </CircleMarker>
                 ))}
             </MapContainer>
+
+            {/* 배경지도 토글 버튼 */}
+            <button
+                onClick={toggleBasemap}
+                className={`absolute top-3 right-3 z-[1000] p-2 rounded-lg shadow-md border transition-colors ${showBasemap ? 'bg-white border-slate-200 text-emerald-600 hover:bg-emerald-50' : 'bg-slate-100 border-slate-300 text-slate-400 hover:bg-slate-200'}`}
+                title={showBasemap ? '배경지도 숨기기' : '배경지도 표시'}
+            >
+                <MapIcon size={40} />
+            </button>
 
             {isLoading && (
                 <div className="absolute inset-0 flex items-center justify-center bg-white/40 backdrop-blur-[1px] z-[1001] pointer-events-none">
