@@ -3,7 +3,7 @@ import { MapContainer, TileLayer, Rectangle, Popup, Tooltip, useMap, GeoJSON, Im
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { api } from '../../api/client';
-import { Layers, Eye, EyeOff, ChevronRight, X, Map as MapIcon, Grid3X3, Search, Download, Merge } from 'lucide-react';
+import { Layers, Eye, EyeOff, ChevronRight, X, Map as MapIcon, Grid3X3, Search, Download } from 'lucide-react';
 import proj4 from 'proj4';
 import { getTileConfig, MAP_CONFIG } from '../../config/mapConfig';
 import SheetGridOverlay from '../Project/SheetGridOverlay';
@@ -789,7 +789,6 @@ function SheetControlPanel({ sheetState, onSheetStateChange, selectedProject }) 
     const [searchInput, setSearchInput] = useState('');
     const [searchResult, setSearchResult] = useState(null);
     const [isClipping, setIsClipping] = useState(false);
-    const [isMerging, setIsMerging] = useState(false);
     const [availableScales, setAvailableScales] = useState([]);
 
     useEffect(() => {
@@ -828,25 +827,6 @@ function SheetControlPanel({ sheetState, onSheetStateChange, selectedProject }) 
             alert('도엽 클립 실패: ' + err.message);
         } finally {
             setIsClipping(false);
-        }
-    };
-
-    const handleMerge = async () => {
-        if (!selectedProject?.id || !sheetState?.selectedSheets?.length) return;
-        setIsMerging(true);
-        try {
-            for (const sheetId of sheetState.selectedSheets) {
-                const result = await api.mergeExport([selectedProject.id], sheetId, {
-                    scale: sheetState.scale || 5000,
-                    crs: 'EPSG:5186',
-                    gsd: selectedProject.result_gsd || null,
-                });
-                api.triggerDirectDownload(result.download_id);
-            }
-        } catch (err) {
-            alert('도엽 머지 실패: ' + err.message);
-        } finally {
-            setIsMerging(false);
         }
     };
 
@@ -998,24 +978,14 @@ function SheetControlPanel({ sheetState, onSheetStateChange, selectedProject }) 
                         </p>
                     )}
 
-                    <div className="flex gap-2">
-                        <button
-                            onClick={handleClip}
-                            disabled={isClipping || !hasOrtho}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                            <Download size={13} />
-                            {isClipping ? '클립 중...' : `클립 (${selectedSheets.length})`}
-                        </button>
-                        <button
-                            onClick={handleMerge}
-                            disabled={isMerging || !hasOrtho}
-                            className="flex-1 flex items-center justify-center gap-1.5 py-2 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors disabled:opacity-50"
-                        >
-                            <Layers size={13} />
-                            {isMerging ? '머지 중...' : `머지 (${selectedSheets.length})`}
-                        </button>
-                    </div>
+                    <button
+                        onClick={handleClip}
+                        disabled={isClipping || !hasOrtho}
+                        className="w-full flex items-center justify-center gap-1.5 py-2 text-[11px] font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors disabled:opacity-50"
+                    >
+                        <Download size={13} />
+                        {isClipping ? '클립 중...' : `클립 (${selectedSheets.length})`}
+                    </button>
                 </div>
             )}
         </div>

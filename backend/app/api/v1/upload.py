@@ -1041,8 +1041,14 @@ async def complete_multipart_upload(
                 status_counts = {row.upload_status: row.cnt for row in status_result}
                 pending_or_uploading = status_counts.get("pending", 0) + status_counts.get("uploading", 0)
                 completed_images = status_counts.get("completed", 0)
+                failed_images = status_counts.get("failed", 0)
 
-                if pending_or_uploading == 0 and completed_images > 0:
+                logger.info(
+                    f"[Scheduled Processing] Upload status for project {project_id}: "
+                    f"completed={completed_images}, pending/uploading={pending_or_uploading}, failed={failed_images}"
+                )
+
+                if pending_or_uploading == 0 and completed_images > 0 and failed_images == 0:
                     # All images uploaded — update DB state first (atomic)
                     scheduled_job.status = "queued"
                     scoped_project.status = "queued"

@@ -52,6 +52,9 @@ class ProjectResponse(ProjectBase):
     # 처리 결과 정보
     result_gsd: Optional[float] = None  # 처리 결과 GSD (cm/pixel)
     process_mode: Optional[str] = None  # 마지막 처리 모드 (Preview, Normal, High)
+    # 처리 시간 정보
+    processing_started_at: Optional[datetime] = None
+    processing_completed_at: Optional[datetime] = None
     # 현재 사용자 기준 권한(유효 권한)
     current_user_permission: Optional[str] = None  # view | edit | admin
     can_edit: bool = False
@@ -224,6 +227,7 @@ class ProcessingJobResponse(BaseModel):
     result_gsd: Optional[float] = None  # 처리 결과 GSD (cm/pixel)
     process_mode: Optional[str] = None  # Preview, Normal, High
     metrics: Optional[dict[str, Any]] = None
+    step_status: Optional[dict[str, Any]] = None  # 단계별 진행률 (status.json)
 
     class Config:
         from_attributes = True
@@ -308,9 +312,9 @@ class RegionalStatsResponse(BaseModel):
 
 class StorageStatsResponse(BaseModel):
     """Per-directory storage statistics."""
-    storage_size: int    # bytes - storage directory (local or MinIO)
-    processing_size: int # bytes - processing data directory
-    tiles_size: int      # bytes - offline tiles directory
+    storage_size: int    # bytes - 정사영상 총 용량 (DB ortho_size 합산)
+    processing_size: int = 0  # bytes - 하위호환 유지
+    tiles_size: int      # bytes - 배경지도 타일 디렉토리
     storage_backend: str = "minio"  # "local" or "minio"
 
 

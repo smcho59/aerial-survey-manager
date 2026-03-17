@@ -149,7 +149,10 @@ function Dashboard() {
         ...p,
         status: STATUS_MAP[p.status] || p.status,
         imageCount: p.image_count || 0,
-        startDate: p.created_at?.slice(0, 10) || '',
+        completedDate: p.updated_at?.slice(0, 10) || '',
+        createdDate: p.created_at?.slice(0, 10) || '',
+        processingStartedAt: p.processing_started_at || null,
+        processingCompletedAt: p.processing_completed_at || null,
         // Use real bounds from backend, don't mock it!
         bounds: p.bounds,
         orthoResult: (p.status === 'completed' || p.status === '완료') ? {
@@ -294,11 +297,21 @@ function Dashboard() {
   const [selectedImageId, setSelectedImageId] = useState(null);
   const [sheetState, setSheetState] = useState({ visible: false, scale: 5000, selectedSheets: [], searchResult: null });
 
-  // Reset selected image and sheet state when project changes or when leaving processing mode
+  // Reset selected image and sheet state when project or view changes
   useEffect(() => {
     setSelectedImageId(null);
     setSheetState({ visible: false, scale: 5000, selectedSheets: [], searchResult: null });
   }, [selectedProjectId, viewMode]);
+
+  // Reset project images only when returning to dashboard (not when entering processing)
+  const prevViewModeRef = React.useRef(viewMode);
+  useEffect(() => {
+    const prev = prevViewModeRef.current;
+    prevViewModeRef.current = viewMode;
+    if (prev === 'processing' && viewMode === 'dashboard') {
+      setProjectImages([]);
+    }
+  }, [viewMode]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [regionFilter, setRegionFilter] = useState('ALL');
@@ -545,10 +558,15 @@ function Dashboard() {
     // Try to find in projects list first
     const proj = projects.find(p => p.id === selectedProjectId);
 
+    // processing 모드에서는 processingProject.images를 우선 사용 (fetch 직후 세팅됨)
+    const images = projectImages.length > 0
+      ? projectImages
+      : (processingProject?.images || []);
+
     if (proj) {
       return {
         ...proj,
-        images: projectImages
+        images
       };
     }
 
@@ -556,7 +574,7 @@ function Dashboard() {
     if (viewMode === 'processing' && processingProject) {
       return {
         ...processingProject,
-        images: projectImages.length > 0 ? projectImages : (processingProject.images || [])
+        images
       };
     }
 
@@ -1487,7 +1505,7 @@ function Dashboard() {
               if (proj) {
                 // If projectId differs from current selectedProjectId, we need to fetch images first
                 let imagesToUse = projectImages;
-                if (projectId !== selectedProjectId) {
+                if (projectId !== selectedProjectId || projectImages.length === 0) {
                   // Fetch images for this project
                   try {
                     const images = await fetchImages(projectId);
@@ -1510,6 +1528,7 @@ function Dashboard() {
                       };
                     });
                     imagesToUse = points.filter(p => p.hasEo);
+                    console.log('[onOpenProcessing] fetched images:', images.length, 'with EO:', imagesToUse.length);
                     // Also update state so map can show them
                     setProjectImages(imagesToUse);
                   } catch (err) {

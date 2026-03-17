@@ -102,6 +102,19 @@ def _read_processing_status_file(project_id: str) -> dict:
     return {}
 
 
+def _read_step_status_file(project_id: str) -> dict:
+    try:
+        from app.config import get_settings
+        settings = get_settings()
+        status_path = Path(settings.LOCAL_DATA_PATH) / "processing" / str(project_id) / ".work" / "status.json"
+        if status_path.exists():
+            with open(status_path, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+
 def _to_float(value):
     """Parse numeric values safely to float."""
     if isinstance(value, int | float):
@@ -635,6 +648,9 @@ async def get_processing_status(
         response.message = status_payload.get("message")
     if isinstance(status_payload.get("metrics"), dict):
         response.metrics = status_payload.get("metrics")
+    step_status = _read_step_status_file(str(project_id))
+    if step_status:
+        response.step_status = step_status
     return response
 
 

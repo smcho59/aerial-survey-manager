@@ -340,12 +340,16 @@ async def list_projects(
 
         result_gsd = latest_job.result_gsd if latest_job else None
         process_mode = latest_job.process_mode if latest_job else None
+        processing_started_at = latest_job.started_at if latest_job else None
+        processing_completed_at = latest_job.completed_at if latest_job else None
 
         response = _build_project_response(
             project, bounds_wkt=bounds_wkt, image_count=image_count,
             upload_completed_count=upload_completed_count,
             upload_in_progress=upload_uploading_count > 0,
             result_gsd=result_gsd, process_mode=process_mode,
+            processing_started_at=processing_started_at,
+            processing_completed_at=processing_completed_at,
             **_build_project_access_fields(
                 project,
                 current_user,
@@ -483,10 +487,14 @@ async def get_project(
 
     result_gsd = latest_job.result_gsd if latest_job else None
     process_mode = latest_job.process_mode if latest_job else None
+    processing_started_at = latest_job.started_at if latest_job else None
+    processing_completed_at = latest_job.completed_at if latest_job else None
 
     return _build_project_response(
         project, bounds_wkt=bounds_wkt, image_count=image_count,
         result_gsd=result_gsd, process_mode=process_mode,
+        processing_started_at=processing_started_at,
+        processing_completed_at=processing_completed_at,
         **_build_project_access_fields(
             project,
             current_user,
@@ -585,6 +593,8 @@ async def update_project(
 
     result_gsd = latest_job.result_gsd if latest_job else None
     process_mode = latest_job.process_mode if latest_job else None
+    processing_started_at = latest_job.started_at if latest_job else None
+    processing_completed_at = latest_job.completed_at if latest_job else None
 
     if update_data:
         change_log = {
@@ -611,6 +621,8 @@ async def update_project(
         upload_completed_count=upload_completed_count,
         upload_in_progress=upload_uploading_count > 0,
         result_gsd=result_gsd, process_mode=process_mode,
+        processing_started_at=processing_started_at,
+        processing_completed_at=processing_completed_at,
         **_build_project_access_fields(
             project,
             current_user,
@@ -887,14 +899,14 @@ async def _generate_ortho_thumbnail(storage, ortho_path: str, project_id: str) -
         local_path = temp_cog.name
 
     try:
-        # GDAL로 저해상도 PNG 생성 (최대 1024px 너비)
+        # GDAL로 썸네일 PNG 생성 (최대 4096px 너비 — COG 삭제 후 가시화용)
         thumb_file = tempfile.NamedTemporaryFile(delete=False, suffix='.png')
         thumb_file.close()
 
         result = subprocess.run(
-            ['gdal_translate', '-of', 'PNG', '-outsize', '1024', '0',
+            ['gdal_translate', '-of', 'PNG', '-outsize', '4096', '0',
              '-co', 'ZLEVEL=6', local_path, thumb_file.name],
-            capture_output=True, text=True, timeout=60
+            capture_output=True, text=True, timeout=120
         )
         if result.returncode != 0:
             logger.warning(f"gdal_translate failed: {result.stderr}")
@@ -1310,24 +1322,22 @@ async def get_storage_stats(
         if not refresh and _storage_cache["data"] and now - _storage_cache["ts"] < 300:
             return _storage_cache["data"]
 
-        # Determine storage directory based on backend
         settings = get_settings()
-        if settings.STORAGE_BACKEND == "local":
-            storage_dir = settings.LOCAL_STORAGE_PATH
-        else:
-            # Scan only the aerial-survey bucket, not the entire MinIO data dir
-            storage_dir = f"/data/minio/{settings.MINIO_BUCKET}"
 
-        # Run du -sb in parallel threads (bind mounts from host)
-        storage_size, processing_size, tiles_size = await asyncio.gather(
-            asyncio.to_thread(_get_dir_size, storage_dir),
-            asyncio.to_thread(_get_dir_size, "/data/processing"),
-            asyncio.to_thread(_get_dir_size, "/data/tiles"),
-        )
+        # 정사영상 총 용량: DB의 ortho_size 합산 (정확하고 빠름)
+        from app.database import async_session
+        async with async_session() as db:
+            result = await db.execute(
+                select(func.coalesce(func.sum(Project.ortho_size), 0))
+            )
+            ortho_total = result.scalar() or 0
+
+        # 배경지도 타일 용량만 du로 스캔
+        tiles_size = await asyncio.to_thread(_get_dir_size, "/data/tiles")
 
         resp = StorageStatsResponse(
-            storage_size=storage_size,
-            processing_size=processing_size,
+            storage_size=ortho_total,
+            processing_size=0,
             tiles_size=tiles_size,
             storage_backend=settings.STORAGE_BACKEND,
         )

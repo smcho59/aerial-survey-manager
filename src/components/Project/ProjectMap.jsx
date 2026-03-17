@@ -68,7 +68,9 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
 
     const images = useMemo(() => {
         if (!project?.images) return [];
-        return project.images.filter(img => img.hasEo);
+        const filtered = project.images.filter(img => img.hasEo);
+        console.log('[ProjectMap] project.images:', project.images.length, 'with EO:', filtered.length);
+        return filtered;
     }, [project]);
 
     const selectedImage = useMemo(() => {

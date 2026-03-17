@@ -43,6 +43,12 @@ celery_app.conf.update(
     timezone="Asia/Seoul",
     enable_utc=True,
     task_track_started=True,
+    # 기본 visibility_timeout(1시간)이 만료되면 Redis가 task를 재전달함.
+    # 2000장 처리 시 24시간+, 여러 프로젝트 대기 시 합산 대기시간을 고려해 7일로 설정.
+    broker_transport_options={"visibility_timeout": 604800},
+    # prefetch=1: worker가 queue에서 1개 task만 가져옴.
+    # prefetch>1이면 대기 task들도 Redis에서 in-flight로 카운트되어 visibility_timeout 소비.
+    worker_prefetch_multiplier=1,
     task_routes={
         "app.workers.tasks.process_orthophoto": {"queue": "metashape"},
         # 처리 외 모든 태스크는 celery 워커에서 처리
@@ -261,7 +267,7 @@ def _is_processing_active() -> bool:
 # Main processing task
 # ============================================================================
 
-@celery_app.task(bind=True, name="app.workers.tasks.process_orthophoto")
+@celery_app.task(bind=True, name="app.workers.tasks.process_orthophoto", acks_late=True)
 def process_orthophoto(self, job_id: str, project_id: str, options: dict):
     """
     Main orthophoto processing task.
@@ -278,10 +284,16 @@ def process_orthophoto(self, job_id: str, project_id: str, options: dict):
         # Get job and project
         job = db.query(ProcessingJob).filter(ProcessingJob.id == job_id).first()
         project = db.query(Project).filter(Project.id == project_id).first()
-        
+
         if not job or not project:
             return {"status": "error", "message": "Job or project not found"}
-        
+
+        # 멱등성 체크: 이미 완료된 job이면 재실행하지 않음
+        # (Redis visibility_timeout 만료로 인한 재전달 방어)
+        if job.status == "completed":
+            print(f"[process_orthophoto] Job {job_id} already completed, skipping re-execution.")
+            return {"status": "skipped", "message": "Job already completed"}
+
         try:
             queue_name = "unknown"
             try:
