@@ -256,6 +256,11 @@
 
 **레이아웃:** 2칸 (프로젝트 정보 2/3 + 정사영상 썸네일 1/3)
 
+**좌측 패널 구성:**
+- 헤더: BLOCK 배지 + UUID + 상태 배지 + 제목 + 권역/처리모드
+- 처리 결과: 면적(km²) · GSD(cm/px) · 정사영상 용량(GB) — 3열 카드 강조 표시
+- 기본 정보(생성일, 처리완료일) + 원본 데이터(사진 수, EO, 용량) — 2열 나란히 배치
+
 **주요 동작:**
 - 정사영상 삭제 → `api.deleteOrthoCog()` → 썸네일 자동 생성 후 COG 삭제
 - 처리 중단 → `api.cancelProcessing()`
@@ -271,7 +276,8 @@
 - `FitBounds` — projectId별 1회만 자동 줌 (반복 방지)
 - `MapRefSetter` — map 인스턴스 외부 ref 노출
 - EO 포인트 토글 (Eye/EyeOff 아이콘)
-- 온디맨드 썸네일 — 클릭 시 `api.regenerateThumbnail()` → 3초 폴링
+- 온디맨드 썸네일 — 클릭 시 `api.regenerateThumbnail()`
+- EO 클릭 시 팝업으로 좌표/고도/ω/φ/κ + 썸네일 표시
 
 **컨트롤 버튼 (우상단):**
 - 배경지도 토글

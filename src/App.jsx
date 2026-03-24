@@ -1368,10 +1368,6 @@ function Dashboard() {
             onStartProcessing={handleStartProcessing}
             availableEngines={processingEngines}
             defaultEngine={defaultProcessingEngine}
-            onEoReloaded={async () => {
-              await refreshProjects();
-              setImageRefreshKey(prev => prev + 1);
-            }}
             onCancelled={async () => {
               await refreshProjects();
               setProcessingProject(prev => prev ? ({ ...prev, status: '취소', progress: 0 }) : prev);

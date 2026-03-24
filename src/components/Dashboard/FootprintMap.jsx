@@ -527,16 +527,17 @@ export function RegionBoundaryLayer({ visible = true, onRegionClick, activeRegio
         layersRef.current = [];
     }, [geojsonData, footprints.length]);
 
+    // 인접 권역끼리 색상 계열이 겹치지 않도록 배치
+    // 수도권(파랑,초록) / 강원(연두) / 충청(노랑) / 전라(청록,빨강) / 경상(보라,주황)
     const LAYER_COLORS = {
-        '수도권북부 권역': '#059669', // Emerald 600
-        '수도권남부 권역': '#0284c7', // Sky 600
-        '강원 권역': '#2563eb',      // Blue 600
+        '수도권북부 권역': '#2563eb', // Blue 600
+        '수도권남부 권역': '#059669', // Emerald 600
+        '강원 권역': '#65a30d',      // Lime 600
         '충청 권역': '#d97706',      // Amber 600
-        '전라동부 권역': '#7c3aed',   // Violet 600
-        '전라서부 권역': '#9333ea',   // Purple 600
-        '경북 권역': '#dc2626',      // Red 600
-        '경남 권역': '#e11d48',      // Rose 600
-        '제주 권역': '#db2777',      // Pink 600
+        '전라동부 권역': '#0891b2',   // Cyan 600
+        '전라서부 권역': '#dc2626',   // Red 600
+        '경북 권역': '#7c3aed',      // Violet 600
+        '경남 권역': '#ea580c',      // Orange 600
         'Unknown': '#64748b'
     };
 

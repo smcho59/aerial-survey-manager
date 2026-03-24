@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip, useMap, ImageOverlay } from 'react-leaflet';
 import L from 'leaflet';
-import { Loader2, Camera, Layers, X, Map as MapIcon, Crosshair, Eye, EyeOff } from 'lucide-react';
+import { Loader2, Camera, Layers, Map as MapIcon, Crosshair, Eye, EyeOff } from 'lucide-react';
 import { TiTilerOrthoLayer, RegionBoundaryLayer, MapPanes } from '../Dashboard/FootprintMap';
 import { getTileConfig, MAP_CONFIG } from '../../config/mapConfig';
 import api from '../../api/client';
@@ -116,11 +116,6 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
         console.log('[ProjectMap] project.images:', project.images.length, 'with EO:', filtered.length);
         return filtered;
     }, [project]);
-
-    const selectedImage = useMemo(() => {
-        if (!selectedImageId || !project?.images) return null;
-        return project.images.find(img => img.id === selectedImageId);
-    }, [selectedImageId, project]);
 
     if (!project) return (
         <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 map-grid text-slate-400">
@@ -339,70 +334,6 @@ export default function ProjectMap({ project, isProcessingMode, selectedImageId,
                 </div>
             )}
 
-            {selectedImageId && selectedImage && (
-                <div className="absolute bottom-4 left-4 right-4 bg-white border-2 border-slate-300 shadow-xl rounded-xl z-[1000]">
-                    <div className="flex items-stretch gap-4 p-3 max-h-40">
-                        <div className="w-32 h-32 flex-shrink-0 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 flex items-center justify-center">
-                            {getThumbnailUrl(selectedImage) ? (
-                                <img src={getThumbnailUrl(selectedImage)} alt={selectedImage.name} className="w-full h-full object-cover" />
-                            ) : isThumbnailLoading(selectedImage) ? (
-                                <div className="text-center text-slate-400 p-2">
-                                    <Loader2 size={32} className="mx-auto mb-1 animate-spin text-blue-400" />
-                                    <span className="text-xs">생성 중...</span>
-                                </div>
-                            ) : (
-                                <div className="text-center text-slate-400 p-2">
-                                    <Camera size={32} className="mx-auto mb-1 text-slate-300" />
-                                    <span className="text-xs">미리보기 없음</span>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between mb-2">
-                                <h4 className="font-bold text-slate-800 truncate" title={selectedImage.name}>{selectedImage.name}</h4>
-                                <button
-                                    onClick={() => onSelectImage(null)}
-                                    className="p-1 hover:bg-slate-100 rounded text-slate-400 hover:text-slate-600"
-                                >
-                                    <X size={16} />
-                                </button>
-                            </div>
-
-                            <div className="grid grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">위도 (Lat)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.wy?.toFixed(6) || '-'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">경도 (Lon)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.wx?.toFixed(6) || '-'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">고도 (Alt)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.z != null ? `${parseFloat(selectedImage.z).toFixed(1)}m` : '-'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">파일 크기</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.file_size ? `${(selectedImage.file_size / 1024 / 1024).toFixed(1)}MB` : '-'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">Omega (ω)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.omega != null ? parseFloat(selectedImage.omega).toFixed(4) : '0.0000'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">Phi (φ)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.phi != null ? parseFloat(selectedImage.phi).toFixed(4) : '0.0000'}</span>
-                                </div>
-                                <div className="flex flex-col min-w-0">
-                                    <span className="text-[10px] text-slate-400 truncate">Kappa (κ)</span>
-                                    <span className="font-mono text-slate-700 truncate text-[11px]">{selectedImage.kappa != null ? parseFloat(selectedImage.kappa).toFixed(4) : '0.0000'}</span>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

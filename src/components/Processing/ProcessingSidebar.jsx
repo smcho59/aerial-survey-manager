@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Settings, ArrowLeft, Loader2, X, CheckCircle2, AlertTriangle, Bookmark, Save, Trash2, Play, UploadCloud, FileText, RefreshCw } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Settings, ArrowLeft, Loader2, X, CheckCircle2, AlertTriangle, Save, Trash2, Play, Camera } from 'lucide-react';
 import api from '../../api/client';
 import { useProcessingProgress } from '../../hooks/useProcessingProgress';
 
@@ -9,7 +9,6 @@ export default function ProcessingSidebar({
     onCancel,
     onStartProcessing,
     onComplete,
-    onEoReloaded,
     onCancelled,
     activeUploads = [],
     availableEngines = [],
@@ -24,12 +23,6 @@ export default function ProcessingSidebar({
     const [isSaveModalOpen, setIsSaveModalOpen] = useState(false);
     const [newPresetName, setNewPresetName] = useState('');
     const [newPresetDesc, setNewPresetDesc] = useState('');
-    const [isEoReloadOpen, setIsEoReloadOpen] = useState(false);
-    const [isEoReloading, setIsEoReloading] = useState(false);
-    const [eoFile, setEoFile] = useState(null);
-    const [eoFileName, setEoFileName] = useState(null);
-    const [rawEoData, setRawEoData] = useState('');
-    const eoInputRef = useRef(null);
 
     const processingEngines = useMemo(() => {
         if (!Array.isArray(availableEngines)) return [{ name: 'metashape', enabled: true, reason: '기본 엔진' }];
@@ -63,37 +56,6 @@ export default function ProcessingSidebar({
         process_mode: 'Normal',
         build_point_cloud: false
     });
-    const [eoConfig, setEoConfig] = useState({
-        delimiter: ',',
-        hasHeader: true,
-        crs: 'WGS84 (EPSG:4326)',
-        columns: { image_name: 0, x: 1, y: 2, z: 3, omega: 4, phi: 5, kappa: 6 }
-    });
-
-    const parsedPreview = useMemo(() => {
-        if (!eoFileName || !rawEoData) return [];
-        const lines = rawEoData.split('\n');
-        const startIdx = eoConfig.hasHeader ? 1 : 0;
-        const previewLines = lines.slice(startIdx, startIdx + 8);
-        return previewLines.map((line, idx) => {
-            let parts = [];
-            if (eoConfig.delimiter === 'tab') parts = line.split('\t');
-            else if (eoConfig.delimiter === 'space') parts = line.split(/\s+/);
-            else parts = line.split(eoConfig.delimiter);
-            parts = parts.map(p => p.trim()).filter(p => p !== '');
-            const getVal = (colIdx) => parts[colIdx] || '-';
-            return {
-                key: idx,
-                image_name: getVal(eoConfig.columns.image_name),
-                x: getVal(eoConfig.columns.x),
-                y: getVal(eoConfig.columns.y),
-                z: getVal(eoConfig.columns.z),
-                omega: getVal(eoConfig.columns.omega),
-                phi: getVal(eoConfig.columns.phi),
-                kappa: getVal(eoConfig.columns.kappa),
-            };
-        });
-    }, [eoConfig, eoFileName, rawEoData]);
 
     // UI states
     const [isCompletionModalOpen, setIsCompletionModalOpen] = useState(false);
@@ -362,55 +324,6 @@ export default function ProcessingSidebar({
         }
     };
 
-    const handleEoFileSelect = (e) => {
-        const file = e.target.files?.[0] || null;
-        setEoFile(file);
-        setEoFileName(file?.name || null);
-        if (!file) {
-            setRawEoData('');
-            return;
-        }
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            setRawEoData(String(event.target?.result || ''));
-        };
-        reader.onerror = () => {
-            setRawEoData('');
-        };
-        reader.readAsText(file);
-    };
-
-    const handleEoReload = async () => {
-        if (!project?.id) {
-            alert('프로젝트 정보가 없습니다.');
-            return;
-        }
-        if (!eoFile) {
-            alert('EO 파일을 선택해주세요.');
-            return;
-        }
-        const status = (project?.status || '').toLowerCase();
-        if (['processing', 'queued', 'running', '진행중', '대기'].includes(status)) {
-            alert('처리 중에는 EO를 변경할 수 없습니다.');
-            return;
-        }
-        setIsEoReloading(true);
-        try {
-            await api.uploadEoData(project.id, eoFile, eoConfig);
-            alert('EO 데이터가 갱신되었습니다.');
-            setIsEoReloadOpen(false);
-            setEoFile(null);
-            setEoFileName(null);
-            setRawEoData('');
-            if (eoInputRef.current) eoInputRef.current.value = '';
-            if (onEoReloaded) await onEoReloaded();
-        } catch (err) {
-            console.error('Failed to reload EO:', err);
-            alert('EO 재로드 실패: ' + err.message);
-        } finally {
-            setIsEoReloading(false);
-        }
-    };
 
     return (
         <aside
@@ -526,28 +439,48 @@ export default function ProcessingSidebar({
                     <h4 className="text-sm font-bold text-slate-700 border-b pb-2 flex items-center gap-2">
                         1. 입력 데이터 정보
                     </h4>
-                    <div className="grid grid-cols-2 gap-4 text-sm font-medium">
+                    <div className="grid grid-cols-2 gap-3 text-sm font-medium">
                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                             <span className="text-slate-500 block text-[10px] uppercase tracking-wider mb-1">이미지 수</span>
-                            <span className="text-slate-800 font-bold">{project?.imageCount || 0} 장</span>
+                            <span className="text-slate-800 font-bold text-lg">{project?.imageCount || 0} <span className="text-sm font-normal text-slate-500">장</span></span>
                         </div>
                         <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
                             <span className="text-slate-500 block text-[10px] uppercase tracking-wider mb-1">EO 데이터</span>
-                            <span className="text-emerald-600 font-bold">로드됨</span>
+                            {(() => {
+                                const eoCount = project?.images?.filter(img => img.hasEo || img.exterior_orientation)?.length || 0;
+                                return eoCount > 0
+                                    ? <span className="text-emerald-600 font-bold text-lg">{eoCount} <span className="text-sm font-normal">건</span></span>
+                                    : <span className="text-slate-400 font-bold">없음</span>;
+                            })()}
                         </div>
+                        {project?.area > 0 && (
+                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                <span className="text-blue-500 block text-[10px] uppercase tracking-wider mb-1">촬영 면적</span>
+                                <span className="text-blue-700 font-bold text-lg">{project.area.toFixed(2)} <span className="text-sm font-normal">km²</span></span>
+                            </div>
+                        )}
+                        {project?.source_size > 0 && (
+                            <div className="bg-slate-50 p-3 rounded-lg border border-slate-100">
+                                <span className="text-slate-500 block text-[10px] uppercase tracking-wider mb-1">원본 용량</span>
+                                <span className="text-slate-800 font-bold text-lg">{(project.source_size / (1024 * 1024 * 1024)).toFixed(2)} <span className="text-sm font-normal text-slate-500">GB</span></span>
+                            </div>
+                        )}
                     </div>
-                    <button
-                        onClick={() => setIsEoReloadOpen(true)}
-                        className="w-full text-[11px] text-slate-500 hover:text-blue-600 hover:bg-blue-50 py-2 rounded-md flex items-center justify-center gap-1 border border-dashed border-slate-200 transition-all"
-                    >
-                        <RefreshCw size={12} /> EO 데이터 다시 로드
-                    </button>
+                    {(() => {
+                        const cameraName = project?.images?.[0]?.camera_model?.name;
+                        return cameraName ? (
+                            <div className="flex items-center gap-2 text-xs text-slate-500 bg-slate-50 px-3 py-2 rounded-lg border border-slate-100">
+                                <Camera size={13} className="text-slate-400" />
+                                <span>카메라: <span className="font-semibold text-slate-700">{cameraName}</span></span>
+                            </div>
+                        ) : null;
+                    })()}
                 </div>
 
-                {/* 2. Processing Options (Formerly Preset Selection) */}
+                {/* 2. 처리 설정 */}
                 <div className="space-y-3">
                     <h4 className="text-sm font-bold text-slate-700 border-b pb-2 flex items-center gap-2">
-                        2. 처리 설정 (Processing Options)
+                        2. 처리 설정
                     </h4>
 
                     {startError && (
@@ -675,119 +608,6 @@ export default function ProcessingSidebar({
                         <div className="flex gap-3 mt-6">
                             <button onClick={() => setIsSaveModalOpen(false)} className="flex-1 py-2 border border-slate-200 rounded text-sm font-medium hover:bg-slate-50">취소</button>
                             <button onClick={handleSavePreset} className="flex-1 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded text-sm font-bold">저장</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {isEoReloadOpen && (
-                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/50" onClick={() => setIsEoReloadOpen(false)}>
-                    <div className="bg-white rounded-xl p-6 w-[520px] shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                        <h3 className="font-bold text-lg mb-4 flex items-center gap-2"><FileText size={18} className="text-blue-600" /> EO 데이터 재로드</h3>
-                        <div className="space-y-4">
-                            <input
-                                type="file"
-                                accept=".txt,.csv,.json"
-                                ref={eoInputRef}
-                                onChange={handleEoFileSelect}
-                                className="hidden"
-                            />
-                            <button
-                                onClick={() => eoInputRef.current?.click()}
-                                className={`w-full p-4 border-2 border-dashed rounded-xl flex items-center justify-center gap-3 transition-colors ${eoFileName ? 'border-emerald-500 bg-emerald-50 text-emerald-700' : 'border-slate-300 text-slate-500 hover:bg-slate-50'}`}
-                            >
-                                <UploadCloud size={18} />
-                                <span className="text-sm font-medium">{eoFileName || 'EO 파일 선택 (.txt/.csv/.json)'}</span>
-                            </button>
-                            <div className="grid grid-cols-3 gap-3">
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-500">좌표계 (CRS)</label>
-                                    <select className="w-full text-sm border p-2 rounded-lg bg-white" value={eoConfig.crs} onChange={(e) => setEoConfig({ ...eoConfig, crs: e.target.value })}>
-                                        <option value="WGS84 (EPSG:4326)">WGS84 (Lat/Lon)</option>
-                                        <option value="GRS80 (EPSG:5186)">GRS80 (TM)</option>
-                                        <option value="UTM52N (EPSG:32652)">UTM Zone 52N</option>
-                                    </select>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-500">구분자</label>
-                                    <select className="w-full text-sm border p-2 rounded-lg bg-white" value={eoConfig.delimiter} onChange={(e) => setEoConfig({ ...eoConfig, delimiter: e.target.value })}>
-                                        <option value=",">콤마 (,)</option>
-                                        <option value="tab">탭 (Tab)</option>
-                                        <option value="space">공백 (Space)</option>
-                                    </select>
-                                </div>
-                                <div className="space-y-1">
-                                    <label className="text-xs font-bold text-slate-500">헤더 행</label>
-                                    <select className="w-full text-sm border p-2 rounded-lg bg-white" value={eoConfig.hasHeader} onChange={(e) => setEoConfig({ ...eoConfig, hasHeader: e.target.value === 'true' })}>
-                                        <option value="true">첫 줄 제외 (Skip)</option>
-                                        <option value="false">포함 (Include)</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div className="pt-2 border-t border-slate-200">
-                                <label className="text-xs font-bold text-slate-500 mb-2 block">열 번호 매핑 (Column Index)</label>
-                                <div className="grid grid-cols-7 gap-2">
-                                    {Object.entries(eoConfig.columns).map(([key, val]) => (
-                                        <div key={key} className="bg-white p-1.5 rounded border border-slate-200 flex flex-col items-center">
-                                            <span className="text-[9px] font-bold text-slate-400 uppercase mb-1">{key}</span>
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                className="w-full text-center font-mono text-xs font-bold text-blue-600 bg-transparent outline-none"
-                                                value={val}
-                                                onChange={(e) => setEoConfig({ ...eoConfig, columns: { ...eoConfig.columns, [key]: parseInt(e.target.value, 10) || 0 } })}
-                                            />
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            <div className="border-t border-slate-200 pt-3">
-                                <div className="text-xs font-bold text-slate-500 mb-2 flex items-center gap-2">
-                                    <FileText size={12} className="text-slate-400" />
-                                    EO 미리보기
-                                </div>
-                                <div className="max-h-48 overflow-auto border border-slate-200 rounded-lg">
-                                    {!eoFileName ? (
-                                        <div className="p-6 text-center text-slate-400 text-xs">EO 파일을 선택하면 미리보기가 표시됩니다.</div>
-                                    ) : (
-                                        <table className="w-full text-xs text-left">
-                                            <thead className="bg-slate-50 sticky top-0 text-slate-500">
-                                                <tr>
-                                                    <th className="p-2 border-b font-semibold">Image ID</th>
-                                                    <th className="p-2 border-b font-semibold">Lon/X</th>
-                                                    <th className="p-2 border-b font-semibold">Lat/Y</th>
-                                                    <th className="p-2 border-b font-semibold">Alt/Z</th>
-                                                    <th className="p-2 border-b font-semibold">Ω</th>
-                                                    <th className="p-2 border-b font-semibold">Φ</th>
-                                                    <th className="p-2 border-b font-semibold">K</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-100">
-                                                {parsedPreview.map((row) => (
-                                                    <tr key={row.key} className="hover:bg-blue-50 transition-colors">
-                                                        <td className="p-2 font-mono text-slate-700">{row.image_name}</td>
-                                                        <td className="p-2 font-mono text-slate-500">{row.x}</td>
-                                                        <td className="p-2 font-mono text-slate-500">{row.y}</td>
-                                                        <td className="p-2 font-mono text-slate-500">{row.z}</td>
-                                                        <td className="p-2 font-mono text-slate-400">{row.omega}</td>
-                                                        <td className="p-2 font-mono text-slate-400">{row.phi}</td>
-                                                        <td className="p-2 font-mono text-slate-400">{row.kappa}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    )}
-                                </div>
-                            </div>
-                        </div>
-                        <div className="flex gap-3 mt-6">
-                            <button onClick={() => setIsEoReloadOpen(false)} className="flex-1 py-2 border border-slate-200 rounded text-sm font-medium hover:bg-slate-50">취소</button>
-                            <button
-                                onClick={handleEoReload}
-                                disabled={isEoReloading}
-                                className={`flex-1 py-2 rounded text-sm font-bold ${isEoReloading ? 'bg-slate-300 text-slate-500' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}
-                            >
-                                {isEoReloading ? '업로드 중...' : '업로드'}
-                            </button>
                         </div>
                     </div>
                 </div>

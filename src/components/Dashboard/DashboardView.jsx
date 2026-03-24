@@ -83,9 +83,10 @@ function StatsSummary({ stats, storageStats, isCompact = false }) {
                     unit={`/ ${totalCount} 건`}
                     label="프로젝트 진행"
                 >
-                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100">
+                    <div className="flex gap-2 mt-3 pt-3 border-t border-slate-100 flex-wrap">
                         <span className="px-2 py-0.5 text-xs font-medium bg-emerald-100 text-emerald-700 rounded">완료 {completedCount}</span>
                         <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded">진행 {stats.processing}</span>
+                        <span className="px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600 rounded">대기 {stats.pending}</span>
                     </div>
                 </DashboardStatsCard>
 

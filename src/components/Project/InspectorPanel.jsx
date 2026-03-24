@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { FileImage, Download, Loader2, X, AlertTriangle, CheckCircle2, Trash2, Camera, Calendar } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { FileImage, Download, Loader2, X, CheckCircle2, Trash2, Camera, Calendar } from 'lucide-react';
 import api from '../../api/client';
 import { useProcessingProgress } from '../../hooks/useProcessingProgress';
 
@@ -10,28 +10,13 @@ const PROCESS_MODE_LABEL = {
     'High': '고정밀 처리',
 };
 
-function formatDuration(startedAt, completedAt) {
-    if (!startedAt || !completedAt) return null;
-    const start = new Date(startedAt);
-    const end = new Date(completedAt);
-    const diffMs = end - start;
-    if (diffMs < 0) return null;
-    const totalSec = Math.floor(diffMs / 1000);
-    const hours = Math.floor(totalSec / 3600);
-    const minutes = Math.floor((totalSec % 3600) / 60);
-    const seconds = totalSec % 60;
-    if (hours > 0) return `${hours}시간 ${minutes}분 ${seconds}초`;
-    if (minutes > 0) return `${minutes}분 ${seconds}초`;
-    return `${seconds}초`;
-}
-
 export default function InspectorPanel({ project, image, qcData, onQcUpdate, onCloseImage, onExport, onProjectUpdate }) {
     const [isImageLoaded, setIsImageLoaded] = useState(false);
     const [isCancelling, setIsCancelling] = useState(false);
     const [isDeletingCog, setIsDeletingCog] = useState(false);
 
     // Real-time progress tracking
-    const { progress: procProgress, status: procStatus, message: procMessage } = useProcessingProgress(
+    const { progress: procProgress, message: procMessage } = useProcessingProgress(
         (project?.status === '진행중' || project?.status === 'processing') ? project.id : null
     );
 
@@ -78,84 +63,108 @@ export default function InspectorPanel({ project, image, qcData, onQcUpdate, onC
     if (!project) return <div className="flex h-full items-center justify-center bg-slate-50 text-slate-400">프로젝트를 선택하세요</div>;
 
     if (!image) {
+        const statusLabel = project.status === 'completed' ? '완료' : project.status;
+        const statusStyle = (project.status === '완료' || project.status === 'completed')
+            ? 'bg-emerald-100 text-emerald-700'
+            : (project.status === '오류' || project.status === 'error')
+                ? 'bg-red-100 text-red-700'
+                : (project.status === '진행중' || project.status === 'processing')
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-slate-100 text-slate-600';
+
         return (
             <div className="flex h-full w-full bg-white text-slate-800">
-                {/* 왼쪽: 프로젝트 정보 + 원본 데이터 (2/3) */}
-                <div className="w-2/3 border-r border-slate-200 p-6 overflow-y-auto">
-                    <div className="flex items-center gap-2 mb-2"><span className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-600 border border-slate-200">BLOCK</span><span className="text-xs text-slate-400 font-mono">{project.id}</span></div>
-                    <h2 className="text-2xl font-bold leading-tight mb-5">{project.title}</h2>
-                    <div className="flex gap-6">
-                        {/* 왼쪽 서브컬럼: 프로젝트 정보 */}
-                        <div className="flex-1 space-y-3 text-sm">
-                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">권역</span><span className="font-medium">{project.region}</span></div>
-                            <div className="flex justify-between border-b pb-2"><span className="text-slate-500">상태</span><span className={`font-bold ${project.status === '완료' || project.status === 'completed' ? 'text-emerald-600' : project.status === '오류' || project.status === 'error' ? 'text-red-600' : 'text-blue-600'}`}>{project.status === 'completed' ? '완료' : project.status}</span></div>
+                {/* 왼쪽: 프로젝트 정보 (2/3) */}
+                <div className="w-2/3 border-r border-slate-200 p-8 overflow-y-auto space-y-6">
+                    {/* 헤더: 제목 + 상태 */}
+                    <div>
+                        <div className="flex items-center gap-2.5 mb-2">
+                            <span className="px-2.5 py-1 rounded text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200">BLOCK</span>
+                            <span className="text-sm text-slate-400 font-mono">{project.id}</span>
+                            <span className={`px-3 py-1 rounded-full text-xs font-bold ${statusStyle}`}>{statusLabel}</span>
+                        </div>
+                        <h2 className="text-3xl font-bold leading-tight mt-1">{project.title}</h2>
+                        <div className="flex items-center gap-3 mt-2 text-base text-slate-500">
+                            <span>{project.region}</span>
                             {project.process_mode && (
-                                <div className="flex justify-between border-b pb-2">
-                                    <span className="text-slate-500">처리 모드</span>
-                                    <span className="font-medium">{PROCESS_MODE_LABEL[project.process_mode] || project.process_mode}</span>
-                                </div>
-                            )}
-                            {project.area && (
-                                <div className="flex justify-between border-b pb-2">
-                                    <span className="text-slate-500">정사영상 면적</span>
-                                    <span className="font-medium text-blue-600 font-bold">{project.area.toFixed(3)} km²</span>
-                                </div>
-                            )}
-                            {project.result_gsd && (
-                                <div className="flex justify-between border-b pb-2">
-                                    <span className="text-slate-500">GSD</span>
-                                    <span className="font-medium">{project.result_gsd.toFixed(2)} cm/px</span>
-                                </div>
-                            )}
-                            {project.ortho_size && (
-                                <div className="flex justify-between border-b pb-2">
-                                    <span className="text-slate-500">정사영상 용량</span>
-                                    <span className="font-medium">{(project.ortho_size / (1024 * 1024 * 1024)).toFixed(2)} GB</span>
-                                </div>
-                            )}
-                            {project.createdDate && <div className="flex justify-between border-b pb-2"><span className="text-slate-500">생성일</span><span className="font-medium">{project.createdDate}</span></div>}
-                            {project.completedDate && <div className="flex justify-between border-b pb-2"><span className="text-slate-500">처리완료일</span><span className="font-medium">{project.completedDate}</span></div>}
-                            {/* COG 관리 */}
-                            {(project.status === '완료' || project.status === 'completed') && project.ortho_path && (
-                                <button
-                                    onClick={handleDeleteCog}
-                                    disabled={isDeletingCog}
-                                    className="w-full flex items-center justify-center gap-2 py-2 mt-2 text-xs text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors disabled:opacity-50"
-                                >
-                                    <Trash2 size={14} />
-                                    {isDeletingCog ? '삭제 중...' : '정사영상 삭제 (저장공간 확보)'}
-                                </button>
-                            )}
-                            {(project.status === '완료' || project.status === 'completed') && !project.ortho_path && project.ortho_thumbnail_path && (
-                                <div className="flex items-center gap-2 py-2 px-3 text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
-                                    <CheckCircle2 size={14} />
-                                    정사영상 삭제됨 {project.ortho_size ? `(${(project.ortho_size / (1024 * 1024 * 1024)).toFixed(2)} GB 확보)` : ''}
-                                </div>
+                                <>
+                                    <span className="text-slate-300">|</span>
+                                    <span>{PROCESS_MODE_LABEL[project.process_mode] || project.process_mode}</span>
+                                </>
                             )}
                         </div>
-                        {/* 오른쪽 서브컬럼: 원본 데이터 */}
-                        <div className="flex-1 space-y-3 text-sm">
+                    </div>
+
+                    {/* 처리 결과: 주요 수치 카드 */}
+                    <div>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">처리 결과</h4>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 text-center">
+                                <p className="text-xs text-blue-500 font-bold uppercase tracking-wider mb-1">면적</p>
+                                <p className="text-3xl font-bold text-blue-700">{project.area ? project.area.toFixed(3) : '-'}</p>
+                                <p className="text-sm text-blue-400 mt-0.5">km²</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center">
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">GSD</p>
+                                <p className="text-3xl font-bold text-slate-800">{project.result_gsd ? project.result_gsd.toFixed(2) : '-'}</p>
+                                <p className="text-sm text-slate-400 mt-0.5">cm/px</p>
+                            </div>
+                            <div className="bg-slate-50 border border-slate-200 rounded-xl p-5 text-center">
+                                <p className="text-xs text-slate-500 font-bold uppercase tracking-wider mb-1">정사영상 용량</p>
+                                <p className="text-3xl font-bold text-slate-800">{project.ortho_size ? (project.ortho_size / (1024 * 1024 * 1024)).toFixed(2) : '-'}</p>
+                                <p className="text-sm text-slate-400 mt-0.5">GB</p>
+                            </div>
+                        </div>
+                        {/* COG 관리 */}
+                        {(project.status === '완료' || project.status === 'completed') && project.ortho_path && (
+                            <button
+                                onClick={handleDeleteCog}
+                                disabled={isDeletingCog}
+                                className="w-full flex items-center justify-center gap-2 py-2.5 mt-4 text-sm text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition-colors disabled:opacity-50"
+                            >
+                                <Trash2 size={15} />
+                                {isDeletingCog ? '삭제 중...' : '정사영상 삭제 (저장공간 확보)'}
+                            </button>
+                        )}
+                        {(project.status === '완료' || project.status === 'completed') && !project.ortho_path && project.ortho_thumbnail_path && (
+                            <div className="flex items-center gap-2 py-2.5 px-4 mt-4 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg">
+                                <CheckCircle2 size={15} />
+                                정사영상 삭제됨 {project.ortho_size ? `(${(project.ortho_size / (1024 * 1024 * 1024)).toFixed(2)} GB 확보)` : ''}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 기본 정보 + 원본 데이터 */}
+                    <div className="flex gap-8">
+                        <div className="flex-1 space-y-3">
                             <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
-                                <Camera size={13} className="text-blue-500" />원본 데이터
+                                <Calendar size={14} className="text-slate-400" />기본 정보
                             </h4>
-                            <div className="flex justify-between border-b pb-2">
+                            {project.createdDate && <div className="flex justify-between border-b border-slate-100 pb-2.5 text-sm"><span className="text-slate-500">생성일</span><span className="font-semibold">{project.createdDate}</span></div>}
+                            {project.completedDate && <div className="flex justify-between border-b border-slate-100 pb-2.5 text-sm"><span className="text-slate-500">처리완료일</span><span className="font-semibold">{project.completedDate}</span></div>}
+                        </div>
+                        <div className="flex-1 space-y-3">
+                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3 flex items-center gap-1.5">
+                                <Camera size={14} className="text-slate-400" />원본 데이터
+                            </h4>
+                            <div className="flex justify-between border-b border-slate-100 pb-2.5 text-sm">
                                 <span className="text-slate-500">원본 사진</span>
-                                <span className="font-medium">{project.imageCount || 0}장</span>
+                                <span className="font-semibold">{project.imageCount || 0}장</span>
                             </div>
                             {project.eo_count > 0 && (
-                                <div className="flex justify-between border-b pb-2">
+                                <div className="flex justify-between border-b border-slate-100 pb-2.5 text-sm">
                                     <span className="text-slate-500">EO 데이터</span>
-                                    <span className="font-medium text-emerald-600">{project.eo_count}개</span>
+                                    <span className="font-semibold text-emerald-600">{project.eo_count}개</span>
                                 </div>
                             )}
                             {project.source_size > 0 && (
-                                <div className="flex justify-between border-b pb-2">
+                                <div className="flex justify-between border-b border-slate-100 pb-2.5 text-sm">
                                     <span className="text-slate-500">원본 용량</span>
-                                    <span className="font-medium">{(project.source_size / (1024 * 1024 * 1024)).toFixed(2)} GB</span>
+                                    <span className="font-semibold">{(project.source_size / (1024 * 1024 * 1024)).toFixed(2)} GB</span>
                                 </div>
                             )}
                             {project.source_deleted && (
-                                <div className="flex items-center gap-2 py-2 px-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
+                                <div className="flex items-center gap-2 py-2.5 px-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg">
                                     원본 사진 삭제됨 (저장공간 확보)
                                 </div>
                             )}
