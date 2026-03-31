@@ -247,6 +247,7 @@ export default function ExportDialog({ isOpen, onClose, targetProjectIds, allPro
                                     <option value="TM중부 (EPSG:5186)">TM 중부 (EPSG:5186)</option>
                                     <option value="TM서부 (EPSG:5185)">TM 서부 (EPSG:5185)</option>
                                     <option value="TM동부 (EPSG:5187)">TM 동부 (EPSG:5187)</option>
+                                    <option value="TM동해 (EPSG:5188)">TM 동해 (EPSG:5188)</option>
                                     <option value="UTM-K (EPSG:5179)">UTM-K (EPSG:5179)</option>
                                     <option value="WGS84 (EPSG:4326)">WGS84 (EPSG:4326)</option>
                                 </select>
